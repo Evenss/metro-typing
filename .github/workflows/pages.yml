@@ -24,6 +24,9 @@ jobs:
       contents: read
       pages: write
       id-token: write
+    outputs:
+      pages_available: ${{ steps.pages.outputs.available }}
+      should_deploy: ${{ steps.deploy-check.outputs.should_deploy }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -33,8 +36,36 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Check Pages availability
+        id: pages
+        if: ${{ github.event_name == 'push' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          status=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${REPOSITORY}/pages")
+          if [ "$status" = "200" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "GitHub Pages is not enabled for this repository; skipping Pages deployment."
+          fi
+      - name: Decide whether to deploy
+        id: deploy-check
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.deploy }}" = "true" ]; then
+            echo "should_deploy=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "push" ] && [ "${{ steps.pages.outputs.available }}" = "true" ]; then
+            echo "should_deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_deploy=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Setup Pages
-        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy) }}
+        if: ${{ steps.deploy-check.outputs.should_deploy == 'true' }}
         uses: actions/configure-pages@v5
       - name: Install dependencies
         run: npm ci
@@ -45,7 +76,7 @@ jobs:
           PAGES_BASE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
         run: npm run build
       - name: Upload artifact
-        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy) }}
+        if: ${{ steps.deploy-check.outputs.should_deploy == 'true' }}
         uses: actions/upload-pages-artifact@v5
         with:
           path: out
@@ -62,6 +93,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     steps:
+      - name: Skip deployment
+        if: ${{ needs.build.outputs.should_deploy != 'true' }}
+        run: echo "GitHub Pages is not enabled for this repository; deployment was skipped."
       - name: Deploy to GitHub Pages
+        if: ${{ needs.build.outputs.should_deploy == 'true' }}
         id: deployment
         uses: actions/deploy-pages@v5
