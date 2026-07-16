@@ -190,7 +190,7 @@ export function MetroTyping() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/data/hangzhou-metro.json", { signal: controller.signal })
+    fetch(`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/data/hangzhou-metro.json`, { signal: controller.signal })
       .then((response) => {
         if (!response.ok) throw new Error(`数据载入失败（${response.status}）`);
         return response.json() as Promise<MetroData>;
