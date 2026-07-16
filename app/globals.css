@@ -1,6 +1,7 @@
 @import url("https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Noto+Sans+SC:wght@500;700;900&display=swap");
 
 :root {
+  color-scheme: light;
   --ink: #161619;
   --muted: #74716c;
   --paper: #f5f1e8;
@@ -14,7 +15,14 @@
 
 * { box-sizing: border-box; }
 html { min-width: 320px; overflow-x: hidden; }
-body { margin: 0; min-height: 100vh; overflow-x: hidden; background: var(--paper); }
+body {
+  margin: 0;
+  min-height: 100vh;
+  overflow-x: hidden;
+  color: var(--ink);
+  background: var(--paper);
+  transition: color 0.2s ease, background 0.2s ease;
+}
 button, input { font: inherit; }
 button { color: inherit; }
 
@@ -26,7 +34,9 @@ button { color: inherit; }
   transition: color 0.2s ease, background 0.2s ease;
 }
 
+:root.dark,
 .metro-app.dark {
+  color-scheme: dark;
   --ink: #f2efe7;
   --muted: #aaa69d;
   --paper: #171719;
@@ -93,11 +103,13 @@ button { color: inherit; }
   border: 1px solid var(--line);
   border-radius: 50%;
   background: var(--card);
-  font-size: 18px;
+  line-height: 1;
   cursor: pointer;
   transition: transform 0.18s ease, border-color 0.18s ease;
 }
+.icon-button svg { display: block; flex: 0 0 auto; width: 17px; height: 17px; }
 .icon-button:hover { transform: translateY(-1px); border-color: var(--ink); }
+.icon-button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 
 .home-map-screen {
   position: relative;

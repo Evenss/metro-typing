@@ -55,3 +55,19 @@ test("ships complete static assets without server-only templates", async () => {
   await assert.rejects(access(new URL("worker/", repo)));
   await assert.rejects(access(new URL("db/", repo)));
 });
+
+test("uses stable vector icons and page-wide theme styling", async () => {
+  const [client, css] = await Promise.all([
+    read("app/MetroTyping.tsx"),
+    read("app/globals.css"),
+  ]);
+
+  assert.match(client, /function MoonIcon\(\)/);
+  assert.match(client, /function SunIcon\(\)/);
+  assert.match(client, /aria-label=\{themeLabel\}/);
+  assert.match(client, /document\.documentElement/);
+  assert.match(client, /document\.body/);
+  assert.doesNotMatch(client, /[◔☀]/);
+  assert.match(css, /:root\.dark/);
+  assert.match(css, /\.icon-button:focus-visible/);
+});
