@@ -20,6 +20,10 @@ concurrency:
 
 jobs:
   build:
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -29,6 +33,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Setup Pages
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy) }}
+        uses: actions/configure-pages@v5
       - name: Install dependencies
         run: npm ci
       - name: Build static export
