@@ -1,51 +1,35 @@
 import assert from "node:assert/strict";
-import { access, readFile, stat } from "node:fs/promises";
+import { access, readdir, readFile, stat } from "node:fs/promises";
 import test from "node:test";
 
-async function render() {
-  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
-  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
-  const { default: worker } = await import(workerUrl.href);
+const repo = new URL("../", import.meta.url);
+const out = new URL("../out/", import.meta.url);
 
-  return worker.fetch(
-    new Request("http://localhost/", {
-      headers: { accept: "text/html", host: "localhost" },
-    }),
-    {
-      ASSETS: {
-        fetch: async () => new Response("Not found", { status: 404 }),
-      },
-    },
-    {
-      waitUntil() {},
-      passThroughOnException() {},
-    },
-  );
+function read(relativePath) {
+  return readFile(new URL(relativePath, repo), "utf8");
 }
 
-test("server-renders the Hangzhou Metro Typing shell and metadata", async () => {
-  const response = await render();
-  assert.equal(response.status, 200);
-  assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
+test("exports a static Hangzhou Metro Typing shell and metadata", async () => {
+  const html = await read("out/index.html");
 
-  const html = await response.text();
   assert.match(html, /HANGZHOU METRO TYPING/);
   assert.match(html, /杭州地铁站名打字练习/);
   assert.match(html, /用杭州真实地铁线路与站名练习中英文打字/);
-  assert.match(html, /http:\/\/localhost\/og\.png/);
+  assert.match(html, /http:\/\/localhost:3000\/og\.png/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|Starter Project/);
 });
 
-test("ships complete Hangzhou route data and removes starter assets", async () => {
-  const [rawData, page, layout, client, css, packageJson, ogStats] =
+test("ships complete static assets without server-only templates", async () => {
+  const [rawData, page, layout, client, css, packageJson, ogStats, nextAssets] =
     await Promise.all([
-      readFile(new URL("../public/data/hangzhou-metro.json", import.meta.url), "utf8"),
-      readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
-      readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
-      readFile(new URL("../app/MetroTyping.tsx", import.meta.url), "utf8"),
-      readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
-      readFile(new URL("../package.json", import.meta.url), "utf8"),
-      stat(new URL("../public/og.png", import.meta.url)),
+      read("public/data/hangzhou-metro.json"),
+      read("app/page.tsx"),
+      read("app/layout.tsx"),
+      read("app/MetroTyping.tsx"),
+      read("app/globals.css"),
+      read("package.json"),
+      stat(new URL("../out/og.png", import.meta.url)),
+      readdir(new URL("_next/static/", out)),
     ]);
 
   const data = JSON.parse(rawData);
@@ -58,11 +42,16 @@ test("ships complete Hangzhou route data and removes starter assets", async () =
     259,
   );
   assert.ok(ogStats.size > 100_000);
+  assert.ok(nextAssets.length > 0);
   assert.match(page, /<MetroTyping \/>/);
-  assert.match(layout, /generateMetadata/);
+  assert.match(layout, /export const metadata/);
+  assert.doesNotMatch(layout, /headers\(|generateMetadata/);
+  assert.match(client, /NEXT_PUBLIC_BASE_PATH/);
   assert.match(client, /30_000/);
   assert.match(client, /compositionEnd/i);
   assert.match(css, /prefers-reduced-motion:\s*reduce/);
-  assert.doesNotMatch(packageJson, /react-loading-skeleton/);
-  await assert.rejects(access(new URL("../app/_sites-preview", import.meta.url)));
+  assert.doesNotMatch(packageJson, /vinext|wrangler|drizzle|cloudflare|vite/);
+  await access(new URL("data/hangzhou-metro.json", out));
+  await assert.rejects(access(new URL("worker/", repo)));
+  await assert.rejects(access(new URL("db/", repo)));
 });
