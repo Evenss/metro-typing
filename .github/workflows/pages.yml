@@ -38,13 +38,13 @@ jobs:
           PAGES_BASE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
         run: npm run build
       - name: Upload artifact
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy }}
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy) }}
         uses: actions/upload-pages-artifact@v5
         with:
           path: out
 
   deploy:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy }}
+    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy) }}
     permissions:
       contents: read
       pages: write
