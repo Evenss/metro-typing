@@ -450,13 +450,17 @@ kbd {
 .next-station span { grid-column: 1; color: var(--muted); font-size: 11px; }
 .next-station strong { grid-column: 1; font-size: 17px; }
 .next-station b { grid-column: 2; grid-row: 1 / 3; width: 32px; height: 32px; display: grid; place-items: center; color: var(--active-route); font-size: 28px; }
-.typing-area { position: relative; min-height: 0; display: grid; grid-template-rows: 1fr; border-top: 1px solid var(--line); }
+.typing-area { position: relative; min-width: 0; min-height: 0; display: grid; grid-template-rows: 1fr; border-top: 1px solid var(--line); }
 .typing-area.is-chinese { grid-template-rows: minmax(0,1fr) 22px; }
-.typing-target { min-height: 0; display: flex; align-items: center; justify-content: center; flex-wrap: nowrap; white-space: nowrap; padding: 6px 24px 8px; font: 500 clamp(22px,4vw,36px) "DM Mono", monospace; letter-spacing: .025em; }
-.typing-target span { color: #b6b2aa; }
-.typing-target .typed { color: var(--ink); }
-.typing-target .current { color: var(--active-route); text-decoration: underline 3px; text-underline-offset: .16em; }
+.typing-target { --typing-min-font-size: 18px; width: 100%; min-width: 0; min-height: 0; display: flex; align-items: center; justify-content: center; flex-wrap: nowrap; white-space: nowrap; padding: 6px 24px 8px; font: 500 clamp(22px,4vw,36px) "DM Mono", monospace; letter-spacing: .025em; }
+.typing-track, .typing-token, .typing-word { display: inline-flex; flex: 0 0 auto; align-items: center; }
+.typing-track { justify-content: center; white-space: nowrap; line-height: 1; }
+.typing-target.is-wrapped .typing-track { width: 100%; max-width: 100%; flex-wrap: wrap; align-content: center; row-gap: .16em; white-space: normal; line-height: 1.15; }
+.typing-character { color: #b6b2aa; }
+.typing-character.typed { color: var(--ink); }
+.typing-character.current { color: var(--active-route); text-decoration: underline 3px; text-underline-offset: .16em; }
 .typing-area.is-chinese .typing-target { padding: 0 24px; column-gap: .08em; font-family: "Noto Sans SC", sans-serif; font-size: clamp(26px,3.5vw,32px); font-weight: 700; letter-spacing: 0; }
+.typing-area.is-chinese .typing-word { column-gap: .08em; }
 .composition-status { min-height: 22px; margin: 0; padding: 4px 20px 3px; overflow: hidden; color: var(--muted); font-size: 10px; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
 .composition-status.is-composing { color: var(--ink); }
 .composition-status strong { color: var(--active-route); font-size: 11px; }
@@ -553,7 +557,7 @@ footer a:hover { color: var(--accent-dark); text-decoration-color: currentColor;
   .station-main { padding: 10px 20px 24px; }
   .station-main h2 { max-width: 100%; overflow: hidden; font-size: 40px; text-overflow: ellipsis; }
   .next-station { display: none; }
-  .typing-target { padding-inline: 12px; font-size: clamp(17px,6vw,30px); }
+  .typing-target { --typing-min-font-size: 16px; padding-inline: 12px; font-size: clamp(17px,6vw,30px); }
   .result-metrics strong { font-size: 27px; }
   .result-actions { flex-direction: column; }
   footer { flex-direction: column; align-items: flex-start; padding: 22px 20px 26px; }

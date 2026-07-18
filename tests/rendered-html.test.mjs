@@ -70,12 +70,15 @@ test("uses stable vector icons and page-wide theme styling", async () => {
   assert.doesNotMatch(client, /<span>github\.com\/Evenss\/metro-typing<\/span>/);
   assert.doesNotMatch(client, /非官方练习产品/);
   assert.match(client, /requestAnimationFrame/);
+  assert.match(client, /ResizeObserver/);
+  assert.match(client, /document\.fonts\.ready/);
   assert.match(client, /document\.documentElement/);
   assert.match(client, /document\.body/);
   assert.doesNotMatch(client, /[◔☀]/);
   assert.match(css, /:root\.dark/);
   assert.match(css, /\.icon-button:focus-visible/);
   assert.match(css, /\.city-map\.intro/);
+  assert.match(css, /\.typing-target\.is-wrapped/);
   assert.match(css, /\.top-actions/);
   assert.match(css, /\.github-button:hover/);
 });

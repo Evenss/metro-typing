@@ -201,6 +201,110 @@ function normalizeTarget(station: Station | undefined, language: TypingLanguage)
     .trim();
 }
 
+function useTypingTargetFit(language: TypingLanguage, target: string) {
+  const targetRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    const targetElement = targetRef.current;
+    const trackElement = trackRef.current;
+    if (!targetElement || !trackElement) return;
+
+    let animationFrame = 0;
+    let disposed = false;
+
+    const fit = () => {
+      animationFrame = 0;
+      targetElement.classList.remove("is-wrapped");
+      targetElement.style.removeProperty("font-size");
+
+      if (language === "zh") return;
+
+      const styles = window.getComputedStyle(targetElement);
+      const horizontalPadding =
+        Number.parseFloat(styles.paddingLeft) +
+        Number.parseFloat(styles.paddingRight);
+      const verticalPadding =
+        Number.parseFloat(styles.paddingTop) +
+        Number.parseFloat(styles.paddingBottom);
+      const availableWidth = Math.max(
+        targetElement.clientWidth - horizontalPadding,
+        1,
+      );
+      const availableHeight = Math.max(
+        targetElement.clientHeight - verticalPadding,
+        1,
+      );
+      const maximumFontSize = Number.parseFloat(styles.fontSize);
+      const minimumFontSize =
+        Number.parseFloat(
+          styles.getPropertyValue("--typing-min-font-size"),
+        ) || 18;
+      const naturalWidth = trackElement.getBoundingClientRect().width;
+
+      if (!Number.isFinite(maximumFontSize) || naturalWidth <= 0) return;
+
+      const oneLineFontSize = Math.min(
+        maximumFontSize,
+        maximumFontSize * (availableWidth / naturalWidth) * 0.98,
+      );
+
+      if (oneLineFontSize >= minimumFontSize) {
+        targetElement.style.fontSize = `${oneLineFontSize.toFixed(2)}px`;
+        return;
+      }
+
+      targetElement.classList.add("is-wrapped");
+      let lowerBound = minimumFontSize;
+      let upperBound = maximumFontSize;
+      let fittedFontSize = minimumFontSize;
+
+      for (let iteration = 0; iteration < 8; iteration += 1) {
+        const candidate = (lowerBound + upperBound) / 2;
+        targetElement.style.fontSize = `${candidate}px`;
+        const trackRect = trackElement.getBoundingClientRect();
+        const fits =
+          trackElement.scrollWidth <= availableWidth + 1 &&
+          trackRect.height <= availableHeight + 1;
+
+        if (fits) {
+          fittedFontSize = candidate;
+          lowerBound = candidate;
+        } else {
+          upperBound = candidate;
+        }
+      }
+
+      targetElement.style.fontSize = `${fittedFontSize.toFixed(2)}px`;
+    };
+
+    const scheduleFit = () => {
+      window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(fit);
+    };
+    const resizeObserver = new ResizeObserver(scheduleFit);
+    const handleFontsLoaded = () => {
+      if (!disposed) scheduleFit();
+    };
+
+    resizeObserver.observe(targetElement);
+    scheduleFit();
+    void document.fonts.ready.then(handleFontsLoaded);
+    document.fonts.addEventListener("loadingdone", handleFontsLoaded);
+
+    return () => {
+      disposed = true;
+      window.cancelAnimationFrame(animationFrame);
+      resizeObserver.disconnect();
+      document.fonts.removeEventListener("loadingdone", handleFontsLoaded);
+      targetElement.classList.remove("is-wrapped");
+      targetElement.style.removeProperty("font-size");
+    };
+  }, [language, target]);
+
+  return { targetRef, trackRef };
+}
+
 function getRuns(line: MetroLine | null) {
   if (!line) return [];
   const lookup = new Map(line.stations.map((station) => [station.nameZh, station]));
@@ -1016,6 +1120,20 @@ function GameScreen({
 }) {
   const current = stations[stationIndex];
   const next = stations[stationIndex + 1] ?? null;
+  const targetText = targetCharacters.join("");
+  const targetWords = useMemo(() => {
+    const allCharacters = Array.from(targetText);
+
+    return Array.from(targetText.matchAll(/[^ ]+/g), (match) => {
+      const word = match[0];
+      const characters = Array.from(word);
+      const startIndex = Array.from(targetText.slice(0, match.index)).length;
+      const followingIndex = startIndex + characters.length;
+      const spaceIndex = allCharacters[followingIndex] === " " ? followingIndex : null;
+      return { characters, startIndex, spaceIndex };
+    });
+  }, [targetText]);
+  const { targetRef, trackRef } = useTypingTargetFit(language, targetText);
   const currentPoint = mapModel.stationPoints.get(current.nameZh) ?? [0, 0];
   const nextPoint = next ? mapModel.stationPoints.get(next.nameZh) ?? currentPoint : currentPoint;
   const trainProgress = targetCharacters.length ? typedIndex / targetCharacters.length : 0;
@@ -1091,10 +1209,28 @@ function GameScreen({
           <div className="next-station"><span>{next ? "下一站" : "终点站"}</span><strong>{next?.nameZh ?? "本线终点"}</strong>{next ? <b>→</b> : null}</div>
         </div>
         <div className={`typing-area${language === "zh" ? " is-chinese" : ""}`}>
-          <div className="typing-target" aria-label={`请输入 ${language === "zh" ? current.nameZh : current.nameEn}`}>
-            {targetCharacters.map((character, index) => (
-              <span key={`${character}-${index}`} className={index < typedIndex ? "typed" : index === typedIndex ? "current" : ""}>{character === " " ? "\u00a0" : character}</span>
-            ))}
+          <div ref={targetRef} className="typing-target" aria-label={`请输入 ${language === "zh" ? current.nameZh : current.nameEn}`}>
+            <span ref={trackRef} className="typing-track">
+              {targetWords.map(({ characters, startIndex, spaceIndex }) => (
+                <span className="typing-token" key={`${startIndex}-${characters.join("")}`}>
+                  <span className="typing-word">
+                    {characters.map((character, offset) => {
+                      const index = startIndex + offset;
+                      return (
+                        <span key={`${character}-${index}`} className={`typing-character${index < typedIndex ? " typed" : index === typedIndex ? " current" : ""}`}>
+                          {character}
+                        </span>
+                      );
+                    })}
+                  </span>
+                  {spaceIndex !== null ? (
+                    <span className={`typing-character typing-space${spaceIndex < typedIndex ? " typed" : spaceIndex === typedIndex ? " current" : ""}`}>
+                      {"\u00a0"}
+                    </span>
+                  ) : null}
+                </span>
+              ))}
+            </span>
           </div>
           {language === "zh" ? (
             <p id="typing-instruction" className={`composition-status${compositionText ? " is-composing" : ""}`}>
