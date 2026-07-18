@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <title>Key Matrix</title>
+  <defs>
+    <rect id="key" width="17" height="17" rx="5" fill="currentColor"/>
+  </defs>
+  <g opacity=".28">
+    <use href="#key" x="18" y="18"/><use href="#key" x="42" y="18"/><use href="#key" x="66" y="18"/>
+    <use href="#key" x="18" y="42"/><use href="#key" x="42" y="42"/><use href="#key" x="66" y="42"/>
+    <use href="#key" x="18" y="66"/><use href="#key" x="42" y="66"/><use href="#key" x="66" y="66"/>
+  </g>
+  <path d="M26.5 74.5 50.5 50.5 74.5 26.5" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="26.5" cy="74.5" r="7" fill="currentColor"/>
+  <circle cx="74.5" cy="26.5" r="7" fill="currentColor"/>
+</svg>

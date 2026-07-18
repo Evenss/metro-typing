@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hangzhou Metro Typing — Favicon Design Exploration</title>
+  <style>
+    :root { color: #161619; background: #f5f1e8; font-family: Inter, system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 72px 28px; }
+    header { max-width: 720px; margin: 0 auto 64px; text-align: center; }
+    h1 { margin: 0 0 16px; font-size: clamp(34px, 6vw, 64px); font-weight: 300; letter-spacing: -.045em; }
+    header p { color: #74716c; font: 500 12px ui-monospace, monospace; letter-spacing: .16em; text-transform: uppercase; }
+    main { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 28px; max-width: 1120px; margin: auto; }
+    article { padding: 28px; border: 1px solid #d9d4ca; border-radius: 24px; background: #fffdf8; transition: transform .25s ease; }
+    article:hover { transform: translateY(-4px); }
+    .canvas { height: 218px; display: grid; place-items: center; border-radius: 18px; background: #f08c4a; color: #161619; }
+    .canvas img { width: 132px; height: 132px; }
+    .sizes { display: flex; align-items: center; justify-content: center; gap: 18px; margin-top: 20px; }
+    .sizes img { display: block; }
+    h2 { margin: 26px 0 8px; font-size: 19px; letter-spacing: .02em; }
+    .type { color: #d96a2a; font: 700 11px ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase; }
+    .reason { min-height: 54px; color: #74716c; font-size: 14px; line-height: 1.65; }
+    .selected { border: 2px solid #161619; box-shadow: 0 18px 45px rgb(40 35 25 / .12); }
+    .selected::before { content: "已采用"; float: right; padding: 5px 9px; border-radius: 99px; color: #fffdf8; background: #161619; font: 700 10px ui-monospace, monospace; letter-spacing: .08em; }
+    footer { margin: 64px auto 0; text-align: center; color: #74716c; font: 11px ui-monospace, monospace; letter-spacing: .12em; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>HANGZHOU METRO TYPING</h1>
+    <p>Favicon design exploration · 2026</p>
+  </header>
+  <main>
+    <article class="selected">
+      <div class="canvas"><img src="favicon-concepts/key-route.svg" alt="Key Route" /></div>
+      <div class="sizes"><img src="favicon-concepts/key-route.svg" width="64" height="64" alt="" /><img src="favicon-concepts/key-route.svg" width="32" height="32" alt="" /><img src="favicon-concepts/key-route.svg" width="16" height="16" alt="" /></div>
+      <h2>Key Route</h2><div class="type">Geometry + line</div>
+      <p class="reason">键帽轮廓包住一条转弯的地铁线路；两个站点兼作输入的起点和终点。结构最少，在 16px 下最稳定。</p>
+    </article>
+    <article>
+      <div class="canvas"><img src="favicon-concepts/h-interchange.svg" alt="H Interchange" /></div>
+      <div class="sizes"><img src="favicon-concepts/h-interchange.svg" width="64" height="64" alt="" /><img src="favicon-concepts/h-interchange.svg" width="32" height="32" alt="" /><img src="favicon-concepts/h-interchange.svg" width="16" height="16" alt="" /></div>
+      <h2>H Interchange</h2><div class="type">Pure geometry</div>
+      <p class="reason">将 Hangzhou 的 H 重构为两条平行轨道与换乘通道，城市首字母更突出。</p>
+    </article>
+    <article>
+      <div class="canvas"><img src="favicon-concepts/cursor-line.svg" alt="Cursor Line" /></div>
+      <div class="sizes"><img src="favicon-concepts/cursor-line.svg" width="64" height="64" alt="" /><img src="favicon-concepts/cursor-line.svg" width="32" height="32" alt="" /><img src="favicon-concepts/cursor-line.svg" width="16" height="16" alt="" /></div>
+      <h2>Cursor Line</h2><div class="type">Line system</div>
+      <p class="reason">地铁线延伸到输入光标，直接表达“沿线路打字前进”。</p>
+    </article>
+    <article>
+      <div class="canvas"><img src="favicon-concepts/key-matrix.svg" alt="Key Matrix" /></div>
+      <div class="sizes"><img src="favicon-concepts/key-matrix.svg" width="64" height="64" alt="" /><img src="favicon-concepts/key-matrix.svg" width="32" height="32" alt="" /><img src="favicon-concepts/key-matrix.svg" width="16" height="16" alt="" /></div>
+      <h2>Key Matrix</h2><div class="type">Dots + geometry</div>
+      <p class="reason">九枚键帽构成输入矩阵，斜向线路让静态网格产生移动感。</p>
+    </article>
+    <article>
+      <div class="canvas"><img src="favicon-concepts/metro-loop.svg" alt="Metro Loop" /></div>
+      <div class="sizes"><img src="favicon-concepts/metro-loop.svg" width="64" height="64" alt="" /><img src="favicon-concepts/metro-loop.svg" width="32" height="32" alt="" /><img src="favicon-concepts/metro-loop.svg" width="16" height="16" alt="" /></div>
+      <h2>Metro Loop</h2><div class="type">Layered composition</div>
+      <p class="reason">环线包围逐渐变短的文本行，把“线路”与“文字练习”合并为一个闭环。</p>
+    </article>
+    <article>
+      <div class="canvas"><img src="favicon-concepts/train-cursor.svg" alt="Train Cursor" /></div>
+      <div class="sizes"><img src="favicon-concepts/train-cursor.svg" width="64" height="64" alt="" /><img src="favicon-concepts/train-cursor.svg" width="32" height="32" alt="" /><img src="favicon-concepts/train-cursor.svg" width="16" height="16" alt="" /></div>
+      <h2>Train Cursor</h2><div class="type">Node + line</div>
+      <p class="reason">列车正面和输入光标并置，含义最直白，也更具游戏感。</p>
+    </article>
+  </main>
+  <footer>GENERATED FOR HANGZHOU METRO TYPING</footer>
+</body>
+</html>
