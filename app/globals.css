@@ -250,6 +250,7 @@ button { color: inherit; }
   fill: color-mix(in srgb, var(--card) 92%, #e9e5db);
   stroke: #bbb7ae;
   stroke-width: 1.6;
+  stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
   transition: opacity 0.3s ease;
 }

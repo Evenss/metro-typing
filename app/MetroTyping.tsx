@@ -115,7 +115,10 @@ function pointsToString(points: Point[]) {
   return points.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(" ");
 }
 
-function ringToPath(ring: Point[], project: (lon: number, lat: number) => Point) {
+function ringToPath(
+  ring: Point[],
+  project: (lon: number, lat: number) => Point,
+) {
   if (!ring.length) return "";
   return `${ring
     .map(([lon, lat], index) => {

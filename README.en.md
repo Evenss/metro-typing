@@ -2,6 +2,8 @@
 
 [简体中文](./README.md) | English
 
+![METRO TYPING: Which line would you like to ride today?](./public/og.png)
+
 A small project that turns city metro routes into a typing game.
 
 Type station names along real routes and in their actual order while getting to know each city's metro network through play.

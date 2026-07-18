@@ -45,8 +45,8 @@ const cityList: CityConfig[] = [
       {
         districts: ["临安区", "富阳区"],
         leftStationPadding: 32,
-        leftContextWidth: 48,
-        farContextYScale: 0.32,
+        leftContextWidth: 64,
+        farContextYScale: 0.06,
       },
     ],
   },
