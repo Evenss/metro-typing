@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <title>H Interchange</title>
+  <path d="M31 25v50M69 25v50M31 50h38" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="31" cy="32" r="7" fill="white" stroke="currentColor" stroke-width="4"/>
+  <circle cx="69" cy="68" r="7" fill="white" stroke="currentColor" stroke-width="4"/>
+</svg>
