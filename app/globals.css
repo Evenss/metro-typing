@@ -94,10 +94,68 @@ button { color: inherit; }
   cursor: pointer;
 }
 
+.topbar-primary { display: flex; align-items: center; gap: 18px; }
+.city-switcher { position: relative; }
+.city-switcher summary {
+  min-width: 88px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 13px;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  transition: border-color .18s ease, transform .18s ease;
+}
+.city-switcher summary::-webkit-details-marker { display: none; }
+.city-switcher summary:hover { border-color: var(--ink); transform: translateY(-1px); }
+.city-switcher summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.city-switcher-chevron {
+  display: block;
+  flex: 0 0 auto;
+  transform-origin: center;
+  transition: transform .18s ease;
+}
+.city-switcher[open] .city-switcher-chevron { transform: rotate(180deg); }
+.city-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 10px);
+  left: 0;
+  width: 220px;
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: color-mix(in srgb,var(--card) 96%,transparent);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(16px);
+}
+.city-menu a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 11px;
+  border-radius: 10px;
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 13px;
+}
+.city-menu a:hover { background: color-mix(in srgb,var(--accent) 13%,transparent); }
+.city-menu a[aria-current="page"] { color: var(--accent-dark); background: color-mix(in srgb,var(--accent) 16%,transparent); }
+.city-menu small { color: var(--muted); font: 500 9px "DM Mono", monospace; letter-spacing: .08em; }
 .top-actions { display: flex; align-items: center; gap: 8px; }
 .icon-button {
-  width: 42px;
-  height: 42px;
+  width: 40px;
+  height: 40px;
   display: grid;
   place-items: center;
   padding: 0;
@@ -110,12 +168,59 @@ button { color: inherit; }
   text-decoration: none;
   transition: transform 0.18s ease, border-color 0.18s ease;
 }
-.icon-button svg { display: block; flex: 0 0 auto; width: 17px; height: 17px; }
+.icon-button svg { display: block; flex: 0 0 auto; width: 18px; height: 18px; }
 .icon-button:hover { transform: translateY(-1px); border-color: var(--ink); }
 .icon-button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
-.github-button svg { width: 20px; height: 20px; }
-.github-button:hover { color: var(--accent-dark); border-color: var(--accent-dark); transform: translateY(-2px); }
-.github-button:active { transform: scale(.94); }
+.github-star-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  overflow: hidden;
+  border: 1px solid #c9c4ba;
+  border-radius: 999px;
+  background: #fbfaf6;
+  color: #15171c;
+  font: 11px ui-monospace, "SFMono-Regular", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+  text-decoration: none;
+  transition: border-color .18s, transform .18s ease;
+}
+.github-star-action,
+.github-star-count {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding-inline: 12px;
+}
+.github-star-action { gap: 6px; }
+.github-star-action .icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+.github-star-count {
+  border-left: 1px solid #c9c4ba;
+  background: #e7e3da;
+  color: #087e70;
+  font-weight: 700;
+}
+.github-star-button:hover {
+  border-color: #6550b7;
+  transform: translateY(-1px);
+}
+.github-star-button:focus-visible { outline: 2px solid #6550b7; outline-offset: 3px; }
+.dark .github-star-button {
+  border-color: #29313e;
+  background: #10141d;
+  color: #f2f1ec;
+}
+.dark .github-star-count {
+  border-left-color: #29313e;
+  background: #0c1017;
+  color: #4ee4ba;
+}
+.dark .github-star-button:hover { border-color: #ad91ff; }
+.dark .github-star-button:focus-visible { outline-color: #ad91ff; }
 
 .home-map-screen {
   position: relative;
@@ -214,7 +319,15 @@ button { color: inherit; }
   letter-spacing: -0.065em;
   font-weight: 900;
 }
-.home-copy h1 em { color: var(--accent); font-style: normal; }
+.home-copy h1 em {
+  display: block;
+  color: var(--accent);
+  font-size: .72em;
+  font-style: normal;
+  letter-spacing: -.055em;
+  line-height: 1.05;
+  white-space: nowrap;
+}
 .lede {
   max-width: 660px;
   margin: 0 0 30px;
@@ -431,6 +544,7 @@ kbd {
   width: min(760px, 94vw);
   height: var(--game-card-height);
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: 30px 96px 1fr 30px;
   margin-inline: auto;
   overflow: hidden;
@@ -451,7 +565,7 @@ kbd {
 .next-station strong { grid-column: 1; font-size: 17px; }
 .next-station b { grid-column: 2; grid-row: 1 / 3; width: 32px; height: 32px; display: grid; place-items: center; color: var(--active-route); font-size: 28px; }
 .typing-area { position: relative; min-width: 0; min-height: 0; display: grid; grid-template-rows: 1fr; border-top: 1px solid var(--line); }
-.typing-area.is-chinese { grid-template-rows: minmax(0,1fr) 22px; }
+.typing-area.has-hint { grid-template-rows: minmax(0,1fr) 22px; }
 .typing-target { --typing-min-font-size: 18px; width: 100%; min-width: 0; min-height: 0; display: flex; align-items: center; justify-content: center; flex-wrap: nowrap; white-space: nowrap; padding: 6px 24px 8px; font: 500 clamp(22px,4vw,36px) "DM Mono", monospace; letter-spacing: .025em; }
 .typing-track, .typing-token, .typing-word { display: inline-flex; flex: 0 0 auto; align-items: center; }
 .typing-track { justify-content: center; white-space: nowrap; line-height: 1; }
@@ -459,11 +573,9 @@ kbd {
 .typing-character { color: #b6b2aa; }
 .typing-character.typed { color: var(--ink); }
 .typing-character.current { color: var(--active-route); text-decoration: underline 3px; text-underline-offset: .16em; }
-.typing-area.is-chinese .typing-target { padding: 0 24px; column-gap: .08em; font-family: "Noto Sans SC", sans-serif; font-size: clamp(26px,3.5vw,32px); font-weight: 700; letter-spacing: 0; }
-.typing-area.is-chinese .typing-word { column-gap: .08em; }
-.composition-status { min-height: 22px; margin: 0; padding: 4px 20px 3px; overflow: hidden; color: var(--muted); font-size: 10px; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
-.composition-status.is-composing { color: var(--ink); }
-.composition-status strong { color: var(--active-route); font-size: 11px; }
+.typing-optional-space { width: .48em; flex: 0 0 .48em; }
+.typing-hint { min-height: 22px; margin: 0; padding: 4px 20px 3px; overflow: hidden; color: var(--muted); font-size: 10px; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.typing-hint.is-warning { color: var(--ink); font-weight: 800; }
 .line-strip { display: flex; align-items: center; justify-content: center; gap: 9px; padding: 7px; color: white; background: var(--active-route); font-size: 11px; font-weight: 900; line-height: 1; }
 .line-strip i { width: 9px; height: 9px; border-radius: 50%; background: white; }
 @keyframes shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
@@ -511,6 +623,9 @@ footer a:hover { color: var(--accent-dark); text-decoration-color: currentColor;
 @media (max-width: 620px) {
   .topbar { height: 64px; padding-inline: 16px; }
   .brand { font-size: 11px; letter-spacing: .035em; }
+  .topbar-primary { gap: 10px; }
+  .city-switcher summary { min-width: 75px; height: 34px; padding-inline: 11px; font-size: 11px; }
+  .city-menu { left: -88px; width: min(220px,calc(100vw - 32px)); }
   .home-map-screen, .results { min-height: max(680px, calc(100svh - 64px)); }
   .home-map-screen { overflow: clip; }
   .home-copy { top: 26px; left: 20px; right: 20px; width: auto; }
@@ -565,10 +680,19 @@ footer a:hover { color: var(--accent-dark); text-decoration-color: currentColor;
 }
 
 @media (max-width: 380px) {
+  .topbar { padding-inline: 12px; }
+  .topbar-primary { gap: 7px; }
+  .top-actions { gap: 6px; }
   .home-copy h1 { font-size: 42px; }
   .home-copy .lede { font-size: 12.5px; }
   .result-card { padding-inline: 22px; }
   .result-metrics strong { font-size: 24px; }
+}
+
+@media (max-width: 560px) {
+  .github-star-action > span { display: none; }
+  .github-star-action,
+  .github-star-count { padding-inline: 9px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   useCallback,
   useEffect,
@@ -10,37 +11,33 @@ import {
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
+import {
+  cities,
+  getCityConfig,
+  type CityConfig,
+  type CityId,
+} from "../lib/metro/cities";
+import type {
+  MapExtent,
+  MetroData,
+  MetroLine,
+  Point,
+  Station,
+} from "../lib/metro/types";
+import {
+  compressPointBeforeFocus,
+  isPointInRing,
+} from "../lib/metro/map-geometry";
+import {
+  getTypingDisplayText,
+  getTypingDisplayTokens,
+  getTypingTarget,
+  normalizeTypingCharacter,
+} from "../lib/metro/typing";
 
 type Screen = "home" | "game" | "result";
-type Direction = "forward" | "reverse";
 type GameMode = "timed" | "line";
-type TypingLanguage = "en" | "zh";
-type Point = [number, number];
-
-type Station = {
-  id: string;
-  nameZh: string;
-  nameEn: string;
-  lon: number;
-  lat: number;
-};
-
-type MetroLine = {
-  id: string;
-  lineId: string;
-  lineName: string;
-  operatorName: string;
-  color: string;
-  segments: string[][];
-  stations: Station[];
-};
-
-type MetroData = {
-  city: string;
-  updatedAt: string;
-  lines: MetroLine[];
-  districts: Array<{ name: string; rings: Point[][] }>;
-};
+type TypingLanguage = "en" | "pinyin";
 
 type MapModel = {
   districtPaths: Array<{ name: string; path: string }>;
@@ -48,23 +45,27 @@ type MapModel = {
   lineSegments: Map<string, Point[][]>;
 };
 
+type ResolvedRun = {
+  id: string;
+  nameZh: string;
+  kind: "linear" | "loop";
+  directions: Array<{
+    id: string;
+    labelZh: string;
+    stations: Station[];
+  }>;
+};
+
 const MAP_WIDTH = 1000;
 const MAP_HEIGHT = 700;
 const FULL_VIEWBOX = `0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`;
 const GAME_DURATION = 30_000;
-const OVERVIEW_METRO_EXTENT = {
+const DEFAULT_OVERVIEW_METRO_EXTENT: MapExtent = {
   left: 450,
   right: 950,
   top: 70,
   bottom: 630,
 };
-const MAP_BACKGROUND_EXCLUDED_DISTRICTS = new Set([
-  "富阳区",
-  "临安区",
-  "桐庐县",
-  "淳安县",
-  "建德市",
-]);
 
 function longitudeRadians(lon: number) {
   return (lon * Math.PI) / 180;
@@ -76,9 +77,9 @@ function mercatorLatitude(lat: number) {
 }
 
 function createMetroProjection(
-  lines: MetroLine[],
+  stations: Station[],
+  extent: MapExtent,
 ): (lon: number, lat: number) => Point {
-  const stations = lines.flatMap((line) => line.stations);
   if (!stations.length) return () => [500, 350];
 
   const longitudes = stations.map((station) => station.lon);
@@ -94,17 +95,15 @@ function createMetroProjection(
   const projectedMinY = mercatorLatitude(minLat - latPadding);
   const projectedMaxY = mercatorLatitude(maxLat + latPadding);
   const scale = Math.min(
-    (OVERVIEW_METRO_EXTENT.right - OVERVIEW_METRO_EXTENT.left) /
+    (extent.right - extent.left) /
       (projectedMaxX - projectedMinX),
-    (OVERVIEW_METRO_EXTENT.bottom - OVERVIEW_METRO_EXTENT.top) /
+    (extent.bottom - extent.top) /
       (projectedMaxY - projectedMinY),
   );
   const projectedCenterX = (projectedMinX + projectedMaxX) / 2;
   const projectedCenterY = (projectedMinY + projectedMaxY) / 2;
-  const extentCenterX =
-    (OVERVIEW_METRO_EXTENT.left + OVERVIEW_METRO_EXTENT.right) / 2;
-  const extentCenterY =
-    (OVERVIEW_METRO_EXTENT.top + OVERVIEW_METRO_EXTENT.bottom) / 2;
+  const extentCenterX = (extent.left + extent.right) / 2;
+  const extentCenterY = (extent.top + extent.bottom) / 2;
 
   return (lon: number, lat: number): Point => [
     extentCenterX + (longitudeRadians(lon) - projectedCenterX) * scale,
@@ -126,40 +125,91 @@ function ringToPath(ring: Point[], project: (lon: number, lat: number) => Point)
     .join(" ")} Z`;
 }
 
-function buildMapModel(data: MetroData): MapModel {
-  // Frame the actual metro service area on the right, mirroring the reference
-  // composition instead of shrinking the network to fit all of Hangzhou.
-  const project = createMetroProjection(data.lines);
+function createDistrictProjector(
+  rings: Point[][],
+  stations: Station[],
+  project: (lon: number, lat: number) => Point,
+  context: NonNullable<CityConfig["districtContext"]>[number] | undefined,
+) {
+  if (!context) return project;
+
+  const districtStations = stations.filter((station) =>
+    rings.some((ring) => isPointInRing([station.lon, station.lat], ring)),
+  );
+  if (!districtStations.length) return project;
+
+  const leftmostStationX = Math.min(
+    ...districtStations.map((station) => project(station.lon, station.lat)[0]),
+  );
+  const focusX = leftmostStationX - context.leftStationPadding;
+  const districtStationYs = districtStations.map(
+    (station) => project(station.lon, station.lat)[1],
+  );
+  const contextCenterY =
+    (Math.min(...districtStationYs) + Math.max(...districtStationYs)) / 2;
+
+  return (lon: number, lat: number): Point => {
+    return compressPointBeforeFocus(
+      project(lon, lat),
+      focusX,
+      context.leftContextWidth,
+      contextCenterY,
+      context.farContextYScale,
+    );
+  };
+}
+
+function buildMapModel(data: MetroData, city: CityConfig): MapModel {
+  const extent =
+    city.overviewExtent ?? DEFAULT_OVERVIEW_METRO_EXTENT;
+  const project = createMetroProjection(Object.values(data.stations), extent);
   const stationPoints = new Map<string, Point>();
-  for (const line of data.lines) {
-    for (const station of line.stations) {
-      stationPoints.set(
-        station.nameZh,
-        project(station.lon, station.lat),
-      );
+  for (const station of Object.values(data.stations)) {
+    stationPoints.set(station.id, project(station.lon, station.lat));
+  }
+
+  const excludedDistricts = new Set(city.excludedDistricts);
+  const districtProjectors = new Map<
+    string,
+    (lon: number, lat: number) => Point
+  >();
+
+  for (const context of city.districtContext ?? []) {
+    const contextDistricts = data.districts.filter((district) =>
+      context.districts.includes(district.name),
+    );
+    const contextProject = createDistrictProjector(
+      contextDistricts.flatMap((district) => district.rings),
+      Object.values(data.stations),
+      project,
+      context,
+    );
+
+    for (const district of contextDistricts) {
+      districtProjectors.set(district.name, contextProject);
     }
   }
 
   return {
     districtPaths: data.districts
-      // The western and southern districts are geographically vast while the
-      // metro only touches narrow corridors there. Keep their real routes, but
-      // omit the full polygons so the useful network remains the visual subject.
-      .filter(
-        (district) =>
-          !MAP_BACKGROUND_EXCLUDED_DISTRICTS.has(district.name),
-      )
-      .map((district) => ({
-        name: district.name,
-        path: district.rings.map((ring) => ringToPath(ring, project)).join(" "),
-      })),
+      .filter((district) => !excludedDistricts.has(district.name))
+      .map((district) => {
+        const districtProject = districtProjectors.get(district.name) ?? project;
+
+        return {
+          name: district.name,
+          path: district.rings
+            .map((ring) => ringToPath(ring, districtProject))
+            .join(" "),
+        };
+      }),
     stationPoints,
     lineSegments: new Map(
       data.lines.map((line) => [
         line.id,
-        line.segments.map((segment) =>
-          segment
-            .map((name) => stationPoints.get(name))
+        line.mapPaths.map((path) =>
+          path.stationIds
+            .map((stationId) => stationPoints.get(stationId))
             .filter((point): point is Point => Boolean(point)),
         ),
       ]),
@@ -188,20 +238,7 @@ function getRouteViewBox(
   ).toFixed(2)} ${width.toFixed(2)} ${height.toFixed(2)}`;
 }
 
-function normalizeTarget(station: Station | undefined, language: TypingLanguage) {
-  if (!station) return "";
-  if (language === "zh") {
-    return station.nameZh.normalize("NFKC").replace(/[^\p{Letter}\p{Number}]/gu, "");
-  }
-  return station.nameEn
-    .normalize("NFKC")
-    .toLowerCase()
-    .replace(/[^a-z0-9 ]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function useTypingTargetFit(language: TypingLanguage, target: string) {
+function useTypingTargetFit(target: string) {
   const targetRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLSpanElement>(null);
 
@@ -217,8 +254,6 @@ function useTypingTargetFit(language: TypingLanguage, target: string) {
       animationFrame = 0;
       targetElement.classList.remove("is-wrapped");
       targetElement.style.removeProperty("font-size");
-
-      if (language === "zh") return;
 
       const styles = window.getComputedStyle(targetElement);
       const horizontalPadding =
@@ -300,17 +335,30 @@ function useTypingTargetFit(language: TypingLanguage, target: string) {
       targetElement.classList.remove("is-wrapped");
       targetElement.style.removeProperty("font-size");
     };
-  }, [language, target]);
+  }, [target]);
 
   return { targetRef, trackRef };
 }
 
-function getRuns(line: MetroLine | null) {
+function getRuns(
+  line: MetroLine | null,
+  stations: Record<string, Station> | undefined,
+): ResolvedRun[] {
   if (!line) return [];
-  const lookup = new Map(line.stations.map((station) => [station.nameZh, station]));
-  return line.segments
-    .map((segment) => segment.map((name) => lookup.get(name)).filter(Boolean) as Station[])
-    .filter((run) => run.length > 1);
+  if (!stations) return [];
+  return line.runs
+    .map((run) => ({
+      ...run,
+      directions: run.directions
+        .map((direction) => ({
+          ...direction,
+          stations: direction.stationIds
+            .map((stationId) => stations[stationId])
+            .filter(Boolean),
+        }))
+        .filter((direction) => direction.stations.length > 1),
+    }))
+    .filter((run) => run.directions.length > 0);
 }
 
 function linePoints(model: MapModel, line: MetroLine | null) {
@@ -318,13 +366,18 @@ function linePoints(model: MapModel, line: MetroLine | null) {
   return (model.lineSegments.get(line.id) ?? []).flat();
 }
 
-export function MetroTyping() {
+export function MetroTyping({ cityId }: { cityId: CityId }) {
+  return <MetroTypingCity key={cityId} cityId={cityId} />;
+}
+
+function MetroTypingCity({ cityId }: { cityId: CityId }) {
+  const city = getCityConfig(cityId);
   const [data, setData] = useState<MetroData | null>(null);
   const [loadError, setLoadError] = useState("");
   const [screen, setScreen] = useState<Screen>("home");
   const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
   const [runIndex, setRunIndex] = useState(0);
-  const [direction, setDirection] = useState<Direction>("forward");
+  const [directionIndex, setDirectionIndex] = useState(0);
   const [mode, setMode] = useState<GameMode>("timed");
   const [typingLanguage, setTypingLanguage] =
     useState<TypingLanguage>("en");
@@ -337,7 +390,7 @@ export function MetroTyping() {
   const [completedStations, setCompletedStations] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [shake, setShake] = useState(false);
-  const [compositionText, setCompositionText] = useState("");
+  const [inputMethodWarning, setInputMethodWarning] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const playingRef = useRef(false);
@@ -348,20 +401,31 @@ export function MetroTyping() {
   const modeRef = useRef<GameMode>(mode);
   const languageRef = useRef<TypingLanguage>(typingLanguage);
   const composingRef = useRef(false);
+  const discardCompositionInputRef = useRef(false);
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch(`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/data/hangzhou-metro.json`, { signal: controller.signal })
+    playingRef.current = false;
+    const dataUrl = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}${city.dataPath}`;
+    fetch(dataUrl, { signal: controller.signal })
       .then((response) => {
         if (!response.ok) throw new Error(`数据载入失败（${response.status}）`);
         return response.json() as Promise<MetroData>;
       })
-      .then(setData)
+      .then((loadedData) => {
+        if (loadedData.schemaVersion !== 2 || loadedData.city.id !== city.id) {
+          throw new Error("城市数据版本或标识不匹配");
+        }
+        setData(loadedData);
+      })
       .catch((error: Error) => {
         if (error.name !== "AbortError") setLoadError(error.message);
       });
-    return () => controller.abort();
-  }, []);
+    return () => {
+      playingRef.current = false;
+      controller.abort();
+    };
+  }, [city]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -378,15 +442,22 @@ export function MetroTyping() {
     };
   }, [dark]);
 
-  const mapModel = useMemo(() => (data ? buildMapModel(data) : null), [data]);
+  const mapModel = useMemo(
+    () => (data ? buildMapModel(data, city) : null),
+    [city, data],
+  );
   const selectedLine =
     data?.lines.find((line) => line.id === selectedLineId) ?? null;
-  const runs = useMemo(() => getRuns(selectedLine), [selectedLine]);
-  const selectedRun = runs[runIndex] ?? runs[0] ?? [];
-  const previewStations =
-    direction === "reverse" ? [...selectedRun].reverse() : selectedRun;
+  const runs = useMemo(
+    () => getRuns(selectedLine, data?.stations),
+    [data?.stations, selectedLine],
+  );
+  const selectedRun = runs[runIndex] ?? runs[0] ?? null;
+  const selectedDirection =
+    selectedRun?.directions[directionIndex] ?? selectedRun?.directions[0] ?? null;
+  const previewStations = selectedDirection?.stations ?? [];
   const currentStation = gameStations[stationIndex];
-  const target = normalizeTarget(currentStation, typingLanguage);
+  const target = getTypingTarget(currentStation, typingLanguage);
   const targetCharacters = Array.from(target);
   const elapsedSeconds = Math.floor(elapsedMs / 1000);
   const remainingSeconds = Math.max(
@@ -395,7 +466,7 @@ export function MetroTyping() {
   );
   const minutes = Math.max(elapsedMs, 2000) / 60_000;
   const speed =
-    typingLanguage === "zh"
+    typingLanguage === "pinyin"
       ? Math.round(correctChars / minutes)
       : Math.round(correctChars / 5 / minutes);
   const accuracy =
@@ -403,16 +474,25 @@ export function MetroTyping() {
       ? Math.round((correctChars / (correctChars + wrongChars)) * 100)
       : 100;
 
+  const resetTypingInput = useCallback((blur = true) => {
+    composingRef.current = false;
+    discardCompositionInputRef.current = false;
+    setInputMethodWarning(false);
+    if (inputRef.current) {
+      inputRef.current.value = "";
+      if (blur) inputRef.current.blur();
+    }
+  }, []);
+
   const finishGame = useCallback((finalElapsed?: number) => {
     if (!playingRef.current) return;
     playingRef.current = false;
     const elapsed =
       finalElapsed ?? Math.max(performance.now() - startedAtRef.current, 0);
     setElapsedMs(Math.min(elapsed, modeRef.current === "timed" ? GAME_DURATION : elapsed));
-    setCompositionText("");
-    inputRef.current?.blur();
+    resetTypingInput();
     setScreen("result");
-  }, []);
+  }, [resetTypingInput]);
 
   const handleCharacter = useCallback(
     (character: string) => {
@@ -421,16 +501,13 @@ export function MetroTyping() {
       const current = stations[stationIndexRef.current];
       if (!current) return;
       const language = languageRef.current;
-      const currentTarget = Array.from(normalizeTarget(current, language));
+      const received = normalizeTypingCharacter(character, language);
+      if (!received) return;
+      const currentTarget = Array.from(getTypingTarget(current, language));
       const expected = currentTarget[typedIndexRef.current];
-      const received =
-        language === "zh"
-          ? character.normalize("NFKC").replaceAll("臺", "台")
-          : character.toLowerCase();
-      const normalizedExpected =
-        language === "zh" ? expected?.replaceAll("臺", "台") : expected;
 
-      if (received === normalizedExpected) {
+      if (received === expected) {
+        setInputMethodWarning(false);
         setCorrectChars((value) => value + 1);
         const nextTypedIndex = typedIndexRef.current + 1;
         if (nextTypedIndex >= currentTarget.length) {
@@ -465,7 +542,6 @@ export function MetroTyping() {
     (input: HTMLInputElement) => {
       const value = input.value;
       input.value = "";
-      setCompositionText("");
       for (const character of Array.from(value.normalize("NFKC"))) {
         handleCharacter(character);
       }
@@ -494,12 +570,13 @@ export function MetroTyping() {
       if (event.key === "Escape") {
         if (screen === "game") {
           playingRef.current = false;
+          resetTypingInput();
           setScreen("home");
           setSelectedLineId(null);
         } else if (screen === "home" && selectedLineId) {
           setSelectedLineId(null);
           setRunIndex(0);
-          setDirection("forward");
+          setDirectionIndex(0);
         }
         return;
       }
@@ -510,8 +587,7 @@ export function MetroTyping() {
         event.metaKey ||
         event.ctrlKey ||
         event.altKey ||
-        event.key.length !== 1 ||
-        languageRef.current === "zh"
+        event.key.length !== 1
       ) {
         return;
       }
@@ -520,29 +596,28 @@ export function MetroTyping() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [handleCharacter, screen, selectedLineId]);
+  }, [handleCharacter, resetTypingInput, screen, selectedLineId]);
 
   function selectLine(id: string) {
     setSelectedLineId(id);
     setRunIndex(0);
-    setDirection("forward");
+    setDirectionIndex(0);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function resetHome(clearLine = true) {
     playingRef.current = false;
-    inputRef.current?.blur();
-    setCompositionText("");
+    resetTypingInput();
     setScreen("home");
     if (clearLine) setSelectedLineId(null);
     setRunIndex(0);
-    setDirection("forward");
+    setDirectionIndex(0);
   }
 
   function startGame() {
-    if (!selectedLine || !selectedRun.length) return;
-    const stations =
-      direction === "reverse" ? [...selectedRun].reverse() : [...selectedRun];
+    if (!selectedLine || !selectedDirection?.stations.length) return;
+    resetTypingInput(false);
+    const stations = [...selectedDirection.stations];
     gameStationsRef.current = stations;
     stationIndexRef.current = 0;
     typedIndexRef.current = 0;
@@ -557,19 +632,23 @@ export function MetroTyping() {
     setWrongChars(0);
     setCompletedStations(0);
     setElapsedMs(0);
-    setCompositionText("");
     setScreen("game");
     window.setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 0);
   }
 
   function handleInput(event: FormEvent<HTMLInputElement>) {
+    if (discardCompositionInputRef.current) {
+      event.currentTarget.value = "";
+      discardCompositionInputRef.current = false;
+      return;
+    }
     if (
       composingRef.current ||
       (event.nativeEvent as InputEvent).isComposing
     ) {
-      setCompositionText(event.currentTarget.value);
       return;
     }
+    setInputMethodWarning(false);
     consumeInput(event.currentTarget);
   }
 
@@ -580,30 +659,32 @@ export function MetroTyping() {
         className="mobile-typing-input"
         type="text"
         inputMode="text"
-        lang={typingLanguage === "zh" ? "zh-CN" : "en"}
+        lang={typingLanguage === "pinyin" ? "zh-Latn-CN" : "en"}
         autoCapitalize="none"
         autoComplete="off"
         autoCorrect="off"
         spellCheck={false}
-        aria-label={typingLanguage === "zh" ? "中文站名输入" : "英文站名输入"}
+        aria-label={typingLanguage === "pinyin" ? "拼音站名输入" : "英文站名输入"}
         aria-describedby={screen === "game" ? "typing-instruction" : undefined}
         onInput={handleInput}
-        onCompositionStart={(event) => {
+        onCompositionStart={() => {
           composingRef.current = true;
-          setCompositionText(event.currentTarget.value);
-        }}
-        onCompositionUpdate={(event) => {
-          setCompositionText(event.data || event.currentTarget.value || "");
+          setInputMethodWarning(true);
         }}
         onCompositionEnd={(event) => {
           composingRef.current = false;
-          setCompositionText("");
-          consumeInput(event.currentTarget);
+          discardCompositionInputRef.current = true;
+          event.currentTarget.value = "";
+          window.setTimeout(() => {
+            discardCompositionInputRef.current = false;
+            if (inputRef.current) inputRef.current.value = "";
+          }, 0);
         }}
       />
 
       {screen !== "game" ? (
         <Header
+          city={city}
           dark={dark}
           onHome={() => resetHome(true)}
           onToggleDark={() => setDark((value) => !value)}
@@ -612,15 +693,16 @@ export function MetroTyping() {
 
       <main>
         {loadError ? <ErrorScreen message={loadError} /> : null}
-        {!loadError && (!data || !mapModel) ? <LoadingScreen /> : null}
+        {!loadError && (!data || !mapModel) ? <LoadingScreen city={city} /> : null}
         {data && mapModel && screen === "home" ? (
           <HomeScreen
+            city={city}
             data={data}
             mapModel={mapModel}
             selectedLine={selectedLine}
             runs={runs}
             runIndex={runIndex}
-            direction={direction}
+            directionIndex={directionIndex}
             mode={mode}
             typingLanguage={typingLanguage}
             previewStations={previewStations}
@@ -628,9 +710,9 @@ export function MetroTyping() {
             onReset={() => resetHome(true)}
             onRunChange={(index) => {
               setRunIndex(index);
-              setDirection("forward");
+              setDirectionIndex(0);
             }}
-            onDirectionChange={setDirection}
+            onDirectionChange={setDirectionIndex}
             onModeChange={setMode}
             onTypingLanguageChange={setTypingLanguage}
             onStart={startGame}
@@ -638,6 +720,7 @@ export function MetroTyping() {
         ) : null}
         {data && mapModel && screen === "game" && selectedLine && currentStation ? (
           <GameScreen
+            city={city}
             data={data}
             mapModel={mapModel}
             line={selectedLine}
@@ -646,7 +729,7 @@ export function MetroTyping() {
             typedIndex={typedIndex}
             targetCharacters={targetCharacters}
             language={typingLanguage}
-            compositionText={compositionText}
+            inputMethodWarning={inputMethodWarning}
             completedStations={completedStations}
             elapsedSeconds={elapsedSeconds}
             remainingSeconds={remainingSeconds}
@@ -663,7 +746,7 @@ export function MetroTyping() {
             elapsedSeconds={elapsedSeconds}
             completedStations={completedStations}
             speed={speed}
-            speedUnit={typingLanguage === "zh" ? "CPM" : "WPM"}
+            speedUnit={typingLanguage === "pinyin" ? "KPM" : "WPM"}
             accuracy={accuracy}
             routeColor={selectedLine?.color ?? "#f08c4a"}
             onBack={() => resetHome(true)}
@@ -672,16 +755,18 @@ export function MetroTyping() {
         ) : null}
       </main>
 
-      {screen !== "game" ? <Footer data={data} /> : null}
+      {screen !== "game" ? <Footer city={city} data={data} /> : null}
     </div>
   );
 }
 
 function Header({
+  city,
   dark,
   onHome,
   onToggleDark,
 }: {
+  city: CityConfig;
   dark: boolean;
   onHome: () => void;
   onToggleDark: () => void;
@@ -690,9 +775,29 @@ function Header({
 
   return (
     <header className="topbar">
-      <button className="brand" type="button" onClick={onHome} aria-label="回到首页">
-        HANGZHOU METRO TYPING
-      </button>
+      <div className="topbar-primary">
+        <button className="brand" type="button" onClick={onHome} aria-label="回到当前城市首页">
+          METRO TYPING
+        </button>
+        <details className="city-switcher">
+          <summary aria-label={`当前城市：${city.nameZh}，切换城市`}>
+            <span>{city.nameZh}</span>
+            <ChevronDownIcon />
+          </summary>
+          <nav className="city-menu" aria-label="选择城市">
+            {cities.map((option) => (
+              <Link
+                key={option.id}
+                href={option.path}
+                aria-current={option.id === city.id ? "page" : undefined}
+              >
+                <span>{option.nameZh}</span>
+                <small>{option.nameEn.toUpperCase()}</small>
+              </Link>
+            ))}
+          </nav>
+        </details>
+      </div>
       <div className="top-actions">
         <button
           className="icon-button"
@@ -704,18 +809,116 @@ function Header({
         >
           {dark ? <SunIcon /> : <MoonIcon />}
         </button>
-        <a
-          className="icon-button github-button"
-          href="https://github.com/Evenss/metro-typing"
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="在 GitHub 上查看项目（在新窗口打开）"
-          title="GitHub"
-        >
-          <GitHubIcon />
-        </a>
+        <GitHubStarButton />
       </div>
     </header>
+  );
+}
+
+const GITHUB_REPOSITORY_URL = "https://github.com/Evenss/metro-typing";
+const GITHUB_REPOSITORY_API =
+  "https://api.github.com/repos/Evenss/metro-typing";
+const GITHUB_STAR_CACHE_KEY = "metro-typing:github-stars";
+const GITHUB_STAR_CACHE_TTL = 6 * 60 * 60 * 1000;
+
+function GitHubStarButton() {
+  const [starCount, setStarCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 4_000);
+
+    try {
+      const cached = JSON.parse(
+        window.localStorage.getItem(GITHUB_STAR_CACHE_KEY) || "null",
+      ) as { stars?: number; fetchedAt?: number } | null;
+      if (
+        Number.isSafeInteger(cached?.stars) &&
+        typeof cached?.stars === "number" &&
+        cached.stars >= 0 &&
+        typeof cached.fetchedAt === "number" &&
+        Date.now() - cached.fetchedAt < GITHUB_STAR_CACHE_TTL
+      ) {
+        const cachedStars = cached.stars;
+        queueMicrotask(() => {
+          if (!controller.signal.aborted) setStarCount(cachedStars);
+        });
+      }
+    } catch {
+      // Storage can be unavailable in privacy-restricted browser contexts.
+    }
+
+    fetch(GITHUB_REPOSITORY_API, {
+      cache: "no-store",
+      headers: {
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      signal: controller.signal,
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error(`GitHub API error: ${response.status}`);
+        return response.json() as Promise<{ stargazers_count?: number }>;
+      })
+      .then(({ stargazers_count: count }) => {
+        if (count === undefined || !Number.isSafeInteger(count) || count < 0) return;
+        setStarCount(count);
+        try {
+          window.localStorage.setItem(
+            GITHUB_STAR_CACHE_KEY,
+            JSON.stringify({ stars: count, fetchedAt: Date.now() }),
+          );
+        } catch {
+          // The count still renders when storage is unavailable.
+        }
+      })
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name === "AbortError") return;
+      })
+      .finally(() => window.clearTimeout(timeout));
+
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, []);
+
+  return (
+    <a
+      className="github-star-button"
+      href={GITHUB_REPOSITORY_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`在 GitHub 为 METRO TYPING 点赞，当前 ${starCount ?? "未知"} 个 Star`}
+    >
+      <span className="github-star-action">
+        <GitHubIcon />
+        <span>Star</span>
+      </span>
+      <strong className="github-star-count">
+        {starCount === null ? "—" : starCount.toLocaleString("en-US")}
+      </strong>
+    </a>
+  );
+}
+
+function ChevronDownIcon() {
+  return (
+    <svg
+      className="city-switcher-chevron"
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="m3.5 6 4.5 4 4.5-4" />
+    </svg>
   );
 }
 
@@ -768,25 +971,30 @@ function SunIcon() {
 function GitHubIcon() {
   return (
     <svg
+      className="icon"
       viewBox="0 0 24 24"
-      width="20"
-      height="20"
-      fill="currentColor"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
       aria-hidden="true"
       focusable="false"
     >
-      <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.385-1.333-1.754-1.333-1.754-1.089-.745.084-.729.084-.729 1.205.084 1.84 1.237 1.84 1.237 1.07 1.835 2.809 1.305 3.495.998.108-.776.418-1.305.762-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23A11.5 11.5 0 0 1 12 5.82c1.02.005 2.045.138 3.003.404 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
+      <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3.3-.4 6.8-1.6 6.8-7.4A5.8 5.8 0 0 0 19.3 3 5.4 5.4 0 0 0 19.1.1S17.9-.3 15 1.6a13.4 13.4 0 0 0-7 0C5.1-.3 3.9.1 3.9.1A5.4 5.4 0 0 0 3.7 3a5.8 5.8 0 0 0-1.5 4.1c0 5.8 3.5 7 6.8 7.4A4.8 4.8 0 0 0 8 18v4" />
+      <path d="M8 19c-3 .9-3-1.5-4-2" />
     </svg>
   );
 }
 
 function HomeScreen({
+  city,
   data,
   mapModel,
   selectedLine,
   runs,
   runIndex,
-  direction,
+  directionIndex,
   mode,
   typingLanguage,
   previewStations,
@@ -798,26 +1006,26 @@ function HomeScreen({
   onTypingLanguageChange,
   onStart,
 }: {
+  city: CityConfig;
   data: MetroData;
   mapModel: MapModel;
   selectedLine: MetroLine | null;
-  runs: Station[][];
+  runs: ResolvedRun[];
   runIndex: number;
-  direction: Direction;
+  directionIndex: number;
   mode: GameMode;
   typingLanguage: TypingLanguage;
   previewStations: Station[];
   onSelectLine: (id: string) => void;
   onReset: () => void;
   onRunChange: (index: number) => void;
-  onDirectionChange: (direction: Direction) => void;
+  onDirectionChange: (directionIndex: number) => void;
   onModeChange: (mode: GameMode) => void;
   onTypingLanguageChange: (language: TypingLanguage) => void;
   onStart: () => void;
 }) {
-  const uniqueStationCount = new Set(
-    data.lines.flatMap((line) => line.stations.map((station) => station.nameZh)),
-  ).size;
+  const uniqueStationCount = Object.keys(data.stations).length;
+  const selectedRun = runs[runIndex] ?? runs[0] ?? null;
   const targetViewBox = selectedLine
     ? getRouteViewBox(linePoints(mapModel, selectedLine))
     : FULL_VIEWBOX;
@@ -877,7 +1085,7 @@ function HomeScreen({
         className={`city-map${mapIntro ? " intro" : ""}`}
         viewBox={FULL_VIEWBOX}
         role="img"
-        aria-label="杭州地铁运营线路与都市区轮廓图"
+        aria-label={`${city.nameZh}地铁运营线路与都市区轮廓图`}
       >
         <defs>
           <filter id="city-shadow" x="-30%" y="-30%" width="170%" height="180%">
@@ -935,10 +1143,10 @@ function HomeScreen({
                   </g>
                 ))}
                 {selected
-                  ? line.stations.map((station) => {
-                      const point = mapModel.stationPoints.get(station.nameZh);
+                  ? line.stationIds.map((stationId) => {
+                      const point = mapModel.stationPoints.get(stationId);
                       return point ? (
-                        <circle key={station.id} className="route-node" cx={point[0]} cy={point[1]} r="0.45" />
+                        <circle key={stationId} className="route-node" cx={point[0]} cy={point[1]} r="0.45" />
                       ) : null;
                     })
                   : null}
@@ -987,7 +1195,7 @@ function HomeScreen({
               onClick={() => selectLine(line.id)}
             >
               <span className="route-symbol">{line.lineId}</span>
-              <span><strong>{line.lineName}</strong><small>{line.operatorName} · {line.stations.length} 站</small></span>
+              <span><strong>{line.lineName}</strong><small>{line.operatorName} · {line.stationIds.length} 站</small></span>
             </button>
           ))}
         </div>
@@ -998,12 +1206,15 @@ function HomeScreen({
               <div className="run-picker" aria-label="选择行驶区间">
                 <span className="control-label">区间</span>
                 <div className="run-options">
-                  {runs.map((run, index) => (
-                    <label key={`${run[0]?.nameZh}-${run.at(-1)?.nameZh}`} className={`run-option${runIndex === index ? " selected" : ""}`}>
-                      <input type="radio" name="run" value={index} checked={runIndex === index} onChange={() => onRunChange(index)} />
-                      <span><b>{run[0]?.nameZh} → {run.at(-1)?.nameZh}</b><small>{run.length} 站</small></span>
-                    </label>
-                  ))}
+                  {runs.map((run, index) => {
+                    const stations = run.directions[0]?.stations ?? [];
+                    return (
+                      <label key={run.id} className={`run-option${runIndex === index ? " selected" : ""}`}>
+                        <input type="radio" name="run" value={index} checked={runIndex === index} onChange={() => onRunChange(index)} />
+                        <span><b>{run.nameZh || `${stations[0]?.nameZh} → ${stations.at(-1)?.nameZh}`}</b><small>{stations.length} 站</small></span>
+                      </label>
+                    );
+                  })}
                 </div>
               </div>
             ) : null}
@@ -1012,14 +1223,13 @@ function HomeScreen({
               <div className="direction-picker" role="radiogroup" aria-label="行驶方向">
                 <span className="control-label">方向</span>
                 <div className="direction-options">
-                  {(["forward", "reverse"] as Direction[]).map((value) => {
-                    const run = runs[runIndex] ?? runs[0] ?? [];
-                    const origin = value === "forward" ? run[0] : run.at(-1);
-                    const destination = value === "forward" ? run.at(-1) : run[0];
+                  {(selectedRun?.directions ?? []).map((option, index) => {
+                    const origin = option.stations[0];
+                    const destination = option.stations.at(-1);
                     return (
-                      <label key={value} className={`direction-option${direction === value ? " selected" : ""}`}>
-                        <input type="radio" name="direction" value={value} checked={direction === value} onChange={() => onDirectionChange(value)} />
-                        <span><small>从 {origin?.nameZh}</small><b>往 {destination?.nameZh} →</b></span>
+                      <label key={option.id} className={`direction-option${directionIndex === index ? " selected" : ""}`}>
+                        <input type="radio" name="direction" value={option.id} checked={directionIndex === index} onChange={() => onDirectionChange(index)} />
+                        <span><small>{option.labelZh} · 从 {origin?.nameZh}</small><b>往 {destination?.nameZh} →</b></span>
                       </label>
                     );
                   })}
@@ -1032,7 +1242,7 @@ function HomeScreen({
                 label="站名"
                 name="typing-language"
                 value={typingLanguage}
-                options={[{ value: "en", label: "英文" }, { value: "zh", label: "中文" }]}
+                options={[{ value: "en", label: "英文" }, { value: "pinyin", label: "拼音" }]}
                 onChange={(value) => onTypingLanguageChange(value as TypingLanguage)}
               />
               <SegmentedControl
@@ -1080,6 +1290,7 @@ function SegmentedControl({
 }
 
 function GameScreen({
+  city,
   data,
   mapModel,
   line,
@@ -1088,7 +1299,7 @@ function GameScreen({
   typedIndex,
   targetCharacters,
   language,
-  compositionText,
+  inputMethodWarning,
   completedStations,
   elapsedSeconds,
   remainingSeconds,
@@ -1099,6 +1310,7 @@ function GameScreen({
   onBack,
   onFocusTyping,
 }: {
+  city: CityConfig;
   data: MetroData;
   mapModel: MapModel;
   line: MetroLine;
@@ -1107,7 +1319,7 @@ function GameScreen({
   typedIndex: number;
   targetCharacters: string[];
   language: TypingLanguage;
-  compositionText: string;
+  inputMethodWarning: boolean;
   completedStations: number;
   elapsedSeconds: number;
   remainingSeconds: number;
@@ -1120,22 +1332,15 @@ function GameScreen({
 }) {
   const current = stations[stationIndex];
   const next = stations[stationIndex + 1] ?? null;
-  const targetText = targetCharacters.join("");
-  const targetWords = useMemo(() => {
-    const allCharacters = Array.from(targetText);
-
-    return Array.from(targetText.matchAll(/[^ ]+/g), (match) => {
-      const word = match[0];
-      const characters = Array.from(word);
-      const startIndex = Array.from(targetText.slice(0, match.index)).length;
-      const followingIndex = startIndex + characters.length;
-      const spaceIndex = allCharacters[followingIndex] === " " ? followingIndex : null;
-      return { characters, startIndex, spaceIndex };
-    });
-  }, [targetText]);
-  const { targetRef, trackRef } = useTypingTargetFit(language, targetText);
-  const currentPoint = mapModel.stationPoints.get(current.nameZh) ?? [0, 0];
-  const nextPoint = next ? mapModel.stationPoints.get(next.nameZh) ?? currentPoint : currentPoint;
+  const displayText = getTypingDisplayText(current, language);
+  const targetLabel = language === "pinyin" ? current.namePinyin : current.nameEn;
+  const targetWords = useMemo(
+    () => getTypingDisplayTokens(displayText),
+    [displayText],
+  );
+  const { targetRef, trackRef } = useTypingTargetFit(displayText);
+  const currentPoint = mapModel.stationPoints.get(current.id) ?? [0, 0];
+  const nextPoint = next ? mapModel.stationPoints.get(next.id) ?? currentPoint : currentPoint;
   const trainProgress = targetCharacters.length ? typedIndex / targetCharacters.length : 0;
   const trainPoint: Point = [
     currentPoint[0] + (nextPoint[0] - currentPoint[0]) * trainProgress,
@@ -1143,7 +1348,7 @@ function GameScreen({
   ];
   const progressPoints = stations
     .slice(0, stationIndex + 1)
-    .map((station) => mapModel.stationPoints.get(station.nameZh))
+    .map((station) => mapModel.stationPoints.get(station.id))
     .filter((point): point is Point => Boolean(point));
   if (trainProgress > 0) progressPoints.push(trainPoint);
   const gameViewBox = getRouteViewBox(
@@ -1153,11 +1358,15 @@ function GameScreen({
     0.14,
   );
   const routeEnd = stations.at(-1);
+  const passedStationIds = new Set(
+    stations.slice(0, stationIndex).map((station) => station.id),
+  );
+  const showTypingHint = language === "pinyin" || inputMethodWarning;
 
   return (
     <section className="game" style={{ "--active-route": line.color } as CSSProperties}>
       <p className="screen-reader-status" aria-live="polite" aria-atomic="true">
-        当前车站 {current.nameZh}，请输入 {language === "zh" ? current.nameZh : current.nameEn}
+        当前车站 {current.nameZh}，请输入 {targetLabel}
       </p>
       <svg className="game-map" viewBox={gameViewBox} aria-hidden="true">
         <g className="game-districts">
@@ -1175,11 +1384,18 @@ function GameScreen({
           <polyline key={`active-${index}`} className="game-line selected" points={pointsToString(segment)} stroke={line.color} />
         ))}
         {progressPoints.length > 1 ? <polyline className="game-progress" points={pointsToString(progressPoints)} stroke={line.color} /> : null}
-        {line.stations.map((station) => {
-          const point = mapModel.stationPoints.get(station.nameZh);
+        {line.stationIds.map((stationId) => {
+          const station = data.stations[stationId];
+          const point = mapModel.stationPoints.get(stationId);
+          if (!station) return null;
           if (!point) return null;
-          const index = stations.findIndex((item) => item.nameZh === station.nameZh);
-          const state = index < stationIndex && index >= 0 ? " passed" : index === stationIndex ? " current" : index === stationIndex + 1 ? " next" : "";
+          const state = station.id === current.id
+            ? " current"
+            : station.id === next?.id
+              ? " next"
+              : passedStationIds.has(station.id)
+                ? " passed"
+                : "";
           return <circle key={station.id} className={`game-node${state}`} cx={point[0]} cy={point[1]} r="2.4" />;
         })}
         <g className="map-train" style={{ transform: `translate(${trainPoint[0]}px, ${trainPoint[1]}px)` }}>
@@ -1198,20 +1414,20 @@ function GameScreen({
       <div className="scorebar">
         <Metric label={mode === "timed" ? "剩余" : "经过"} value={mode === "timed" ? remainingSeconds : elapsedSeconds} unit="秒" />
         <Metric label="到站" value={completedStations} unit="站" />
-        <Metric label="速度" value={speed} unit={language === "zh" ? "CPM" : "WPM"} />
+        <Metric label="速度" value={speed} unit={language === "pinyin" ? "KPM" : "WPM"} />
         <Metric label="正确率" value={accuracy} unit="%" />
       </div>
 
       <article className={`station-card${shake ? " shake" : ""}`} onClick={onFocusTyping}>
-        <div className="station-meta"><span>{String(stationIndex + 1).padStart(2, "0")}</span><span>杭州市 · {line.lineName} · 数据 {data.updatedAt}</span></div>
+        <div className="station-meta"><span>{String(stationIndex + 1).padStart(2, "0")}</span><span>{city.nameZh}市 · {line.lineName} · 数据 {data.updatedAt}</span></div>
         <div className="station-main">
           <div><p>NOW ARRIVING</p><h2>{current.nameZh}</h2></div>
           <div className="next-station"><span>{next ? "下一站" : "终点站"}</span><strong>{next?.nameZh ?? "本线终点"}</strong>{next ? <b>→</b> : null}</div>
         </div>
-        <div className={`typing-area${language === "zh" ? " is-chinese" : ""}`}>
-          <div ref={targetRef} className="typing-target" aria-label={`请输入 ${language === "zh" ? current.nameZh : current.nameEn}`}>
+        <div className={`typing-area${showTypingHint ? " has-hint" : ""}`}>
+          <div ref={targetRef} className="typing-target" aria-label={`请输入 ${targetLabel}`}>
             <span ref={trackRef} className="typing-track">
-              {targetWords.map(({ characters, startIndex, spaceIndex }) => (
+              {targetWords.map(({ characters, startIndex, visualSeparator }) => (
                 <span className="typing-token" key={`${startIndex}-${characters.join("")}`}>
                   <span className="typing-word">
                     {characters.map((character, offset) => {
@@ -1223,21 +1439,24 @@ function GameScreen({
                       );
                     })}
                   </span>
-                  {spaceIndex !== null ? (
-                    <span className={`typing-character typing-space${spaceIndex < typedIndex ? " typed" : spaceIndex === typedIndex ? " current" : ""}`}>
-                      {"\u00a0"}
-                    </span>
-                  ) : null}
+                  {visualSeparator ? <span className="typing-optional-space" aria-hidden="true">{"\u00a0"}</span> : null}
                 </span>
               ))}
             </span>
           </div>
-          {language === "zh" ? (
-            <p id="typing-instruction" className={`composition-status${compositionText ? " is-composing" : ""}`}>
-              {compositionText ? <>选字中 · <strong>{compositionText}</strong></> : "使用输入法选字"}
+          {showTypingHint ? (
+            <p
+              id="typing-instruction"
+              className={`typing-hint${inputMethodWarning ? " is-warning" : ""}`}
+              role="status"
+              aria-live="polite"
+            >
+              {inputMethodWarning
+                ? "检测到中文输入法，请先切换到英文键盘"
+                : "英文键盘直输 · 不选字，空格/声调免输 · ü 按 v"}
             </p>
           ) : (
-            <span id="typing-instruction" className="screen-reader-status">直接输入画面上的英文站名</span>
+            <span id="typing-instruction" className="screen-reader-status">直接输入画面上的英文站名，空格可输入或省略</span>
           )}
         </div>
         <div className="line-strip"><i /><span>{line.lineName}</span></div>
@@ -1289,8 +1508,8 @@ function ResultScreen({
   );
 }
 
-function LoadingScreen() {
-  return <div className="loading"><span />正在载入杭州地铁线网…</div>;
+function LoadingScreen({ city }: { city: CityConfig }) {
+  return <div className="loading"><span />正在载入{city.nameZh}地铁线网…</div>;
 }
 
 function ErrorScreen({ message }: { message: string }) {
@@ -1302,17 +1521,26 @@ function ErrorScreen({ message }: { message: string }) {
   );
 }
 
-function Footer({ data }: { data: MetroData | null }) {
+function Footer({ city, data }: { city: CityConfig; data: MetroData | null }) {
+  const networkSource = data?.sources?.network ?? {
+    label: city.operatorName,
+    url: city.officialSourceUrl,
+  };
+  const boundarySource = data?.sources?.boundary ?? {
+    label: "DataV",
+    url: city.boundarySourceUrl,
+  };
+
   return (
     <footer>
       <div className="footer-brand">
-        <span className="footer-wordmark">HANGZHOU METRO TYPING</span>
+        <span className="footer-wordmark">{city.nameEn.toUpperCase()} METRO TYPING</span>
         <span className="footer-lines" aria-hidden="true">
           {(data?.lines ?? []).map((line) => <i key={line.id} style={{ background: line.color }} />)}
         </span>
       </div>
       <div className="footer-meta">
-        <p><span className="footer-label">DATA</span>线路与站名参考 <a href="https://www.hzmetro.com/" target="_blank" rel="noreferrer">杭州地铁</a><span className="footer-sep">·</span>地图边界 <a href="https://geo.datav.aliyun.com/areas_v3/bound/330100_full.json" target="_blank" rel="noreferrer">DataV</a></p>
+        <p><span className="footer-label">DATA</span>线路与站名参考 <a href={networkSource.url} target="_blank" rel="noreferrer">{networkSource.label}</a><span className="footer-sep">·</span>地图边界 <a href={boundarySource.url} target="_blank" rel="noreferrer">{boundarySource.label}</a></p>
         <p>设计参考 <a href="https://tw-metro-typing.yencheng.dev/" target="_blank" rel="noreferrer">Taiwan Metro Typing</a></p>
       </div>
     </footer>

@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import "./globals.css";
 
-const title = "HANGZHOU METRO TYPING｜杭州地铁站名打字练习";
-const description = "用杭州真实地铁线路与站名练习中英文打字。";
+const title = "METRO TYPING｜城市地铁站名打字练习";
+const description = "沿着真实城市地铁线路与站序，练习英文或拼音站名打字。";
 const pagesBaseUrl = process.env.PAGES_BASE_URL ?? "http://localhost:3000";
 const metadataBase = new URL(pagesBaseUrl);
 const image = new URL("og.png", metadataBase).toString();
@@ -11,6 +11,7 @@ export const metadata: Metadata = {
   metadataBase,
   title,
   description,
+  applicationName: "METRO TYPING",
   openGraph: {
     type: "website",
     title,

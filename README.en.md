@@ -9,19 +9,25 @@ Type station names along real routes and in their actual order while getting to 
 ## Supported Cities
 
 - Hangzhou
+- Shanghai
+- Beijing
+- Shenzhen
+- Chengdu
 
 ## Play Online
 
 No installation required. [**Play online at metro-typing.fun**](https://metro-typing.fun/).
 
+If you enjoy the project, consider giving it a ⭐ Star in the top-right corner!
+
 ## How to Play
 
 1. Choose a metro line from the map or the line list.
-2. Select a route segment, direction, and Chinese or English station names.
+2. Select a route segment, direction, and either English or pinyin station names.
 3. Choose a game mode:
    - **30 Seconds**: Complete as many station names as possible before time runs out.
    - **Full Line**: Travel along the entire line in its real station order.
-4. Select "Start This Line" and type the station name shown on the screen.
+4. Select "Start This Line" and type the station name shown on the screen. Spaces are optional in both English and pinyin mode. For pinyin, use a Latin keyboard, omit tones, and enter `ü` as `v`.
 5. The train moves forward with every correct character. Your speed, accuracy, and progress are displayed in real time.
 
 ## Inspiration
@@ -38,3 +44,9 @@ npm run dev
 ```
 
 Open <http://localhost:3000> to start playing.
+
+## License
+
+Unless otherwise noted, the source code in this project is released under the [MIT License](./LICENSE).
+
+Metro routes, stations, administrative boundaries, and other data are not covered by the MIT License above. Their use remains subject to the terms of their respective sources and rights holders.

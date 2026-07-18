@@ -1,5 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { validateMetroData } from "./metro-data-validation.mjs";
+import { resolveStationPinyin } from "./pinyin-normalization.mjs";
 
 const AMAP_URL =
   "https://webapi.amap.com/subway/data/3301_drw_hangzhou.json";
@@ -176,6 +178,7 @@ function stationLookup(amap) {
           id: station.si,
           nameZh: name,
           nameEn: station.en || station.sp || name,
+          namePinyin: resolveStationPinyin("hangzhou", name, station.sp),
           lon,
           lat,
         });
@@ -276,20 +279,78 @@ const districts = boundary.features.map((feature) => ({
   rings: collectRings(feature.geometry),
 }));
 
+const canonicalStationId = (name) => `hangzhou:${normalizeName(name)}`;
+const stations = {};
+for (const line of lines) {
+  for (const station of line.stations) {
+    const id = canonicalStationId(station.nameZh);
+    stations[id] ??= { ...station, id };
+  }
+}
+
+const metroLines = lines.map((line) => {
+  const id = `hangzhou-${line.id}`;
+  const mapPaths = line.segments.map((segment, index) => ({
+    id: `${id}-path-${index + 1}`,
+    stationIds: segment.map(canonicalStationId),
+  }));
+  const hasBranches = mapPaths.length > 1;
+  const runs = mapPaths.map((metroPath, index) => {
+    const forward = metroPath.stationIds;
+    const first = stations[forward[0]];
+    const last = stations[forward.at(-1)];
+    return {
+      id: `${id}-run-${index + 1}`,
+      nameZh: hasBranches ? `${first.nameZh}—${last.nameZh}` : line.lineName,
+      kind: "linear",
+      directions: [
+        {
+          id: `${id}-run-${index + 1}-forward`,
+          labelZh: "正向",
+          stationIds: forward,
+        },
+        {
+          id: `${id}-run-${index + 1}-reverse`,
+          labelZh: "反向",
+          stationIds: [...forward].reverse(),
+        },
+      ],
+    };
+  });
+
+  return {
+    id,
+    lineId: line.lineId,
+    lineName: line.lineName,
+    operatorName: line.operatorName,
+    color: line.color,
+    stationIds: [...new Set(mapPaths.flatMap((metroPath) => metroPath.stationIds))],
+    mapPaths,
+    runs,
+  };
+});
+
 const output = {
+  schemaVersion: 2,
   updatedAt: "2026-07-15",
-  city: "杭州",
-  lines,
+  city: { id: "hangzhou", nameZh: "杭州", nameEn: "Hangzhou" },
+  sources: {
+    network: { label: "杭州地铁 / 高德地铁图", url: AMAP_URL },
+    boundary: { label: "DataV", url: BOUNDARY_URL },
+  },
+  stations,
+  lines: metroLines,
   districts,
 };
 
-const outputDir = path.join(process.cwd(), "public", "data");
+const outputDir = path.join(process.cwd(), "public", "data", "metro");
+validateMetroData(output, "hangzhou");
 await mkdir(outputDir, { recursive: true });
 await writeFile(
-  path.join(outputDir, "hangzhou-metro.json"),
+  path.join(outputDir, "hangzhou.json"),
   `${JSON.stringify(output)}\n`,
 );
 
 console.log(
-  `Prepared ${lines.length} lines, ${lines.reduce((sum, line) => sum + line.stations.length, 0)} route-station records, and ${districts.length} district shapes.`,
+  `杭州: ${metroLines.length} lines, ${Object.keys(stations).length} stations, ${districts.length} districts`,
 );

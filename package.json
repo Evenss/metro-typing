@@ -1,15 +1,19 @@
 {
-  "name": "hangzhou-metro-typing",
+  "name": "metro-typing",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "engines": {
     "node": ">=22.13.0"
   },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "prepare:data": "npm run prepare:cities",
+    "prepare:cities": "node scripts/prepare-hangzhou-data.mjs && node scripts/prepare-city-data.mjs && node scripts/validate-metro-data.mjs",
+    "validate:data": "node scripts/validate-metro-data.mjs",
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
-    "lint": "eslint . --ignore-pattern out --ignore-pattern .next"
+    "lint": "eslint . --ignore-pattern out --ignore-pattern .next --ignore-pattern dist"
   },
   "dependencies": {
     "next": "16.2.6",
