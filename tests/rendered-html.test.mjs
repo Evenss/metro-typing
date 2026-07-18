@@ -64,7 +64,10 @@ test("uses stable vector icons and page-wide theme styling", async () => {
 
   assert.match(client, /function MoonIcon\(\)/);
   assert.match(client, /function SunIcon\(\)/);
+  assert.match(client, /function GitHubIcon\(\)/);
   assert.match(client, /aria-label=\{themeLabel\}/);
+  assert.match(client, /https:\/\/github\.com\/Evenss\/metro-typing/);
+  assert.doesNotMatch(client, /非官方练习产品/);
   assert.match(client, /document\.documentElement/);
   assert.match(client, /document\.body/);
   assert.doesNotMatch(client, /[◔☀]/);
