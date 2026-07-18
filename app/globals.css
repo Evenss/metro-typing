@@ -498,6 +498,8 @@ footer a:hover { color: var(--accent-dark); text-decoration-color: currentColor;
 
 @media (max-width: 1000px) {
   .home-copy { width: min(440px, calc(100% - 48px)); }
+  .city-map { transform: translateX(15%); }
+  .focused .city-map { transform: none; }
   .route-button:first-child { margin-left: 0; }
   .route-button:last-child { margin-right: 0; }
 }
@@ -514,7 +516,7 @@ footer a:hover { color: var(--accent-dark); text-decoration-color: currentColor;
   .home-copy h1 em { display: block; }
   .lede { max-width: 350px; margin-bottom: 0; font-size: 13px; line-height: 1.7; }
   .home-instruction, .data-status { display: none; }
-  .city-map { transform: translate(-16%, 17%) scale(1.05); transform-origin: center; }
+  .city-map { transform: translate(-17.5%, 16%) scale(1.02); transform-origin: center; }
   .focused .city-map { transform: none; }
   .route-focus-card { top: 68px; min-width: calc(100vw - 32px); padding: 13px 18px; border-radius: 16px; }
   .focus-route-title h2 { font-size: 21px; }

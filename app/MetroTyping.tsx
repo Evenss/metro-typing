@@ -50,35 +50,73 @@ type MapModel = {
 
 const MAP_WIDTH = 1000;
 const MAP_HEIGHT = 700;
-const MAP_RATIO = MAP_WIDTH / MAP_HEIGHT;
 const FULL_VIEWBOX = `0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`;
 const GAME_DURATION = 30_000;
-const GEO_BOUNDS = {
-  minLon: 118.344957,
-  maxLon: 120.721946,
-  minLat: 29.188757,
-  maxLat: 30.566516,
+const OVERVIEW_METRO_EXTENT = {
+  left: 450,
+  right: 950,
+  top: 70,
+  bottom: 630,
 };
+const MAP_BACKGROUND_EXCLUDED_DISTRICTS = new Set([
+  "富阳区",
+  "临安区",
+  "桐庐县",
+  "淳安县",
+  "建德市",
+]);
 
-function project(lon: number, lat: number): Point {
-  const x =
-    50 +
-    ((lon - GEO_BOUNDS.minLon) /
-      (GEO_BOUNDS.maxLon - GEO_BOUNDS.minLon)) *
-      900;
-  const y =
-    35 +
-    ((GEO_BOUNDS.maxLat - lat) /
-      (GEO_BOUNDS.maxLat - GEO_BOUNDS.minLat)) *
-      630;
-  return [x, y];
+function longitudeRadians(lon: number) {
+  return (lon * Math.PI) / 180;
+}
+
+function mercatorLatitude(lat: number) {
+  const radians = (lat * Math.PI) / 180;
+  return Math.log(Math.tan(Math.PI / 4 + radians / 2));
+}
+
+function createMetroProjection(
+  lines: MetroLine[],
+): (lon: number, lat: number) => Point {
+  const stations = lines.flatMap((line) => line.stations);
+  if (!stations.length) return () => [500, 350];
+
+  const longitudes = stations.map((station) => station.lon);
+  const latitudes = stations.map((station) => station.lat);
+  const minLon = Math.min(...longitudes);
+  const maxLon = Math.max(...longitudes);
+  const minLat = Math.min(...latitudes);
+  const maxLat = Math.max(...latitudes);
+  const lonPadding = (maxLon - minLon) * 0.08;
+  const latPadding = (maxLat - minLat) * 0.12;
+  const projectedMinX = longitudeRadians(minLon - lonPadding);
+  const projectedMaxX = longitudeRadians(maxLon + lonPadding);
+  const projectedMinY = mercatorLatitude(minLat - latPadding);
+  const projectedMaxY = mercatorLatitude(maxLat + latPadding);
+  const scale = Math.min(
+    (OVERVIEW_METRO_EXTENT.right - OVERVIEW_METRO_EXTENT.left) /
+      (projectedMaxX - projectedMinX),
+    (OVERVIEW_METRO_EXTENT.bottom - OVERVIEW_METRO_EXTENT.top) /
+      (projectedMaxY - projectedMinY),
+  );
+  const projectedCenterX = (projectedMinX + projectedMaxX) / 2;
+  const projectedCenterY = (projectedMinY + projectedMaxY) / 2;
+  const extentCenterX =
+    (OVERVIEW_METRO_EXTENT.left + OVERVIEW_METRO_EXTENT.right) / 2;
+  const extentCenterY =
+    (OVERVIEW_METRO_EXTENT.top + OVERVIEW_METRO_EXTENT.bottom) / 2;
+
+  return (lon: number, lat: number): Point => [
+    extentCenterX + (longitudeRadians(lon) - projectedCenterX) * scale,
+    extentCenterY - (mercatorLatitude(lat) - projectedCenterY) * scale,
+  ];
 }
 
 function pointsToString(points: Point[]) {
   return points.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(" ");
 }
 
-function ringToPath(ring: Point[]) {
+function ringToPath(ring: Point[], project: (lon: number, lat: number) => Point) {
   if (!ring.length) return "";
   return `${ring
     .map(([lon, lat], index) => {
@@ -89,6 +127,9 @@ function ringToPath(ring: Point[]) {
 }
 
 function buildMapModel(data: MetroData): MapModel {
+  // Frame the actual metro service area on the right, mirroring the reference
+  // composition instead of shrinking the network to fit all of Hangzhou.
+  const project = createMetroProjection(data.lines);
   const stationPoints = new Map<string, Point>();
   for (const line of data.lines) {
     for (const station of line.stations) {
@@ -100,10 +141,18 @@ function buildMapModel(data: MetroData): MapModel {
   }
 
   return {
-    districtPaths: data.districts.map((district) => ({
-      name: district.name,
-      path: district.rings.map(ringToPath).join(" "),
-    })),
+    districtPaths: data.districts
+      // The western and southern districts are geographically vast while the
+      // metro only touches narrow corridors there. Keep their real routes, but
+      // omit the full polygons so the useful network remains the visual subject.
+      .filter(
+        (district) =>
+          !MAP_BACKGROUND_EXCLUDED_DISTRICTS.has(district.name),
+      )
+      .map((district) => ({
+        name: district.name,
+        path: district.rings.map((ring) => ringToPath(ring, project)).join(" "),
+      })),
     stationPoints,
     lineSegments: new Map(
       data.lines.map((line) => [
@@ -118,17 +167,25 @@ function buildMapModel(data: MetroData): MapModel {
   };
 }
 
-function fitViewBox(points: Point[], padding = 46, minimumWidth = 280) {
+function getRouteViewBox(
+  points: Point[],
+  minimumWidth = 70,
+  padding = 14,
+  verticalOffsetRatio = 0,
+) {
   if (!points.length) return FULL_VIEWBOX;
   const xs = points.map(([x]) => x);
   const ys = points.map(([, y]) => y);
-  const centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
-  const centerY = (Math.min(...ys) + Math.max(...ys)) / 2;
-  let width = Math.max(Math.max(...xs) - Math.min(...xs) + padding * 2, minimumWidth);
-  let height = Math.max(Math.max(...ys) - Math.min(...ys) + padding * 2, 210);
-  if (width / height > MAP_RATIO) height = width / MAP_RATIO;
-  else width = height * MAP_RATIO;
-  return `${(centerX - width / 2).toFixed(2)} ${(centerY - height / 2).toFixed(2)} ${width.toFixed(2)} ${height.toFixed(2)}`;
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const width = Math.max(maxX - minX + padding * 2, minimumWidth);
+  const height = Math.max(maxY - minY + padding * 2, width * 0.72);
+  return `${((minX + maxX - width) / 2).toFixed(2)} ${(
+    (minY + maxY - height) / 2 +
+    height * verticalOffsetRatio
+  ).toFixed(2)} ${width.toFixed(2)} ${height.toFixed(2)}`;
 }
 
 function normalizeTarget(station: Station | undefined, language: TypingLanguage) {
@@ -658,7 +715,7 @@ function HomeScreen({
     data.lines.flatMap((line) => line.stations.map((station) => station.nameZh)),
   ).size;
   const targetViewBox = selectedLine
-    ? fitViewBox(linePoints(mapModel, selectedLine), 42, 300)
+    ? getRouteViewBox(linePoints(mapModel, selectedLine))
     : FULL_VIEWBOX;
   const cityMapRef = useRef<SVGSVGElement>(null);
   const [mapIntro, setMapIntro] = useState(true);
@@ -716,7 +773,7 @@ function HomeScreen({
         className={`city-map${mapIntro ? " intro" : ""}`}
         viewBox={FULL_VIEWBOX}
         role="img"
-        aria-label="杭州行政区与地铁运营线路图"
+        aria-label="杭州地铁运营线路与都市区轮廓图"
       >
         <defs>
           <filter id="city-shadow" x="-30%" y="-30%" width="170%" height="180%">
@@ -729,7 +786,11 @@ function HomeScreen({
         <rect className="map-grid" x="-500" y="-300" width="2100" height="1500" fill="url(#map-grid)" />
         <g className="districts" filter="url(#city-shadow)">
           {mapModel.districtPaths.map((district) => (
-            <path key={district.name} d={district.path} aria-label={district.name} />
+            <path
+              key={district.name}
+              d={district.path}
+              aria-label={district.name}
+            />
           ))}
         </g>
         <g className="home-routes">
@@ -773,7 +834,7 @@ function HomeScreen({
                   ? line.stations.map((station) => {
                       const point = mapModel.stationPoints.get(station.nameZh);
                       return point ? (
-                        <circle key={station.id} className="route-node" cx={point[0]} cy={point[1]} r="2.2" />
+                        <circle key={station.id} className="route-node" cx={point[0]} cy={point[1]} r="0.45" />
                       ) : null;
                     })
                   : null}
@@ -795,7 +856,7 @@ function HomeScreen({
 
       {selectedLine ? (
         <>
-          <button className="map-reset" type="button" onClick={onReset}>← 返回杭州全图 <kbd>ESC</kbd></button>
+          <button className="map-reset" type="button" onClick={onReset}>← 返回线路总览 <kbd>ESC</kbd></button>
           <div className="route-focus-card" aria-live="polite">
             <span className="focus-kicker">SELECTED ROUTE</span>
             <div className="focus-route-title">
@@ -967,7 +1028,12 @@ function GameScreen({
     .map((station) => mapModel.stationPoints.get(station.nameZh))
     .filter((point): point is Point => Boolean(point));
   if (trainProgress > 0) progressPoints.push(trainPoint);
-  const gameViewBox = fitViewBox(linePoints(mapModel, line), 58, 370);
+  const gameViewBox = getRouteViewBox(
+    linePoints(mapModel, line),
+    280,
+    40,
+    0.14,
+  );
   const routeEnd = stations.at(-1);
 
   return (
