@@ -949,12 +949,12 @@ function HomeScreen({
       </svg>
 
       <div className="home-copy" aria-hidden={selectedLine ? "true" : undefined}>
-        <div className="eyebrow"><span /> REAL ROUTES · REAL STATIONS</div>
-        <h1>一站一站，<em>越打越顺。</em></h1>
+        <div className="eyebrow"><span /> THE CITY · ONE LINE AT A TIME</div>
+        <h1>今天，<em>想坐哪一条线？</em></h1>
         <p className="lede">
-          在真实杭州地图上选择路线，沿着运营站序完成英文或中文站名。每打对一个字，列车就会向下一站前进一步。
+          挑选城市、线路和行驶方向，然后输入沿途站名。你的每次完成，都会让这趟列车继续前行。
         </p>
-        <div className="home-instruction"><b>01</b><span>从地图或下方路线列选择线路</span></div>
+        <div className="home-instruction"><b>01</b><span>在地图上挑选线路</span></div>
         <span className="data-status">{data.lines.length} 条线路 · {uniqueStationCount} 座运营车站</span>
       </div>
 
