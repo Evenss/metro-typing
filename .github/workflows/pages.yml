@@ -34,9 +34,7 @@ jobs:
         run: npm ci
       - name: Build static export
         env:
-          PAGES_BASE_PATH: /${{ github.event.repository.name }}
-          NEXT_PUBLIC_BASE_PATH: /${{ github.event.repository.name }}
-          PAGES_BASE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+          PAGES_BASE_URL: https://metro-typing.fun
         run: npm run build
       - name: Upload artifact
         if: ${{ github.event_name == 'push' }}
