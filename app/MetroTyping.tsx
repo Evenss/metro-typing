@@ -661,7 +661,7 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
         ref={inputRef}
         className="mobile-typing-input"
         type="text"
-        inputMode="text"
+        inputMode="email"
         lang={typingLanguage === "pinyin" ? "zh-Latn-CN" : "en"}
         autoCapitalize="none"
         autoComplete="off"
