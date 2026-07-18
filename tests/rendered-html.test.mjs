@@ -67,10 +67,15 @@ test("uses stable vector icons and page-wide theme styling", async () => {
   assert.match(client, /function GitHubIcon\(\)/);
   assert.match(client, /aria-label=\{themeLabel\}/);
   assert.match(client, /https:\/\/github\.com\/Evenss\/metro-typing/);
+  assert.doesNotMatch(client, /<span>github\.com\/Evenss\/metro-typing<\/span>/);
   assert.doesNotMatch(client, /非官方练习产品/);
+  assert.match(client, /requestAnimationFrame/);
   assert.match(client, /document\.documentElement/);
   assert.match(client, /document\.body/);
   assert.doesNotMatch(client, /[◔☀]/);
   assert.match(css, /:root\.dark/);
   assert.match(css, /\.icon-button:focus-visible/);
+  assert.match(css, /\.city-map\.intro/);
+  assert.match(css, /\.top-actions/);
+  assert.match(css, /\.github-button:hover/);
 });

@@ -94,6 +94,7 @@ button { color: inherit; }
   cursor: pointer;
 }
 
+.top-actions { display: flex; align-items: center; gap: 8px; }
 .icon-button {
   width: 42px;
   height: 42px;
@@ -105,11 +106,16 @@ button { color: inherit; }
   background: var(--card);
   line-height: 1;
   cursor: pointer;
+  color: var(--ink);
+  text-decoration: none;
   transition: transform 0.18s ease, border-color 0.18s ease;
 }
 .icon-button svg { display: block; flex: 0 0 auto; width: 17px; height: 17px; }
 .icon-button:hover { transform: translateY(-1px); border-color: var(--ink); }
 .icon-button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.github-button svg { width: 20px; height: 20px; }
+.github-button:hover { color: var(--accent-dark); border-color: var(--accent-dark); transform: translateY(-2px); }
+.github-button:active { transform: scale(.94); }
 
 .home-map-screen {
   position: relative;
@@ -162,9 +168,6 @@ button { color: inherit; }
 .dark .route-casing { stroke: rgba(9, 9, 11, 0.92); }
 .route-line {
   stroke-width: 5.5;
-  stroke-dasharray: 1 1;
-  stroke-dashoffset: 1;
-  animation: draw-route 1.05s cubic-bezier(0.55, 0.06, 0.25, 1) var(--route-delay) both;
   transition: stroke-width 0.18s ease;
 }
 .home-route:hover .route-line, .home-route:focus .route-line, .home-route.selected .route-line { stroke-width: 9; }
@@ -175,7 +178,15 @@ button { color: inherit; }
   vector-effect: non-scaling-stroke;
 }
 
+.city-map.intro .districts { animation: route-fade .6s ease both; }
+.city-map.intro .route-casing, .city-map.intro .route-line {
+  vector-effect: none;
+  stroke-dasharray: 1 1;
+  stroke-dashoffset: 1;
+  animation: draw-route 1.1s cubic-bezier(.55,.06,.25,1) var(--segment-delay,var(--route-delay,0s)) both;
+}
 @keyframes draw-route { to { stroke-dashoffset: 0; } }
+@keyframes route-fade { from { opacity: 0; } to { opacity: 1; } }
 
 .home-copy {
   position: absolute;
@@ -475,7 +486,8 @@ kbd {
 
 footer { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 18px 32px; padding: 26px clamp(20px,5vw,72px) 30px; color: var(--muted); border-top: 1px solid var(--line); font-size: 12px; }
 footer p { margin: 0; }
-footer a { color: var(--ink); font-weight: 700; text-underline-offset: 3px; }
+footer a { color: var(--ink); font-weight: 700; text-decoration-color: color-mix(in srgb,var(--ink) 30%,transparent); text-underline-offset: 3px; transition: color .15s ease, text-decoration-color .15s ease; }
+footer a:hover { color: var(--accent-dark); text-decoration-color: currentColor; }
 .footer-brand { display: flex; flex-direction: column; gap: 10px; }
 .footer-wordmark { color: var(--ink); font: 700 12px "DM Mono", monospace; letter-spacing: .14em; }
 .footer-lines { display: flex; gap: 5px; }
@@ -483,8 +495,6 @@ footer a { color: var(--ink); font-weight: 700; text-underline-offset: 3px; }
 .footer-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; line-height: 1.6; }
 .footer-label { margin-right: 10px; padding: 2px 7px; border: 1px solid color-mix(in srgb,var(--accent-dark) 45%,transparent); border-radius: 999px; color: var(--accent-dark); font: 700 9px "DM Mono", monospace; letter-spacing: .15em; }
 .footer-sep { margin: 0 8px; color: color-mix(in srgb,var(--muted) 60%,transparent); }
-.footer-github { display: inline-flex; align-items: center; gap: 5px; }
-.footer-github svg { flex: 0 0 auto; }
 
 @media (max-width: 1000px) {
   .home-copy { width: min(440px, calc(100% - 48px)); }

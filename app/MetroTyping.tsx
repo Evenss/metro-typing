@@ -532,16 +532,28 @@ function Header({
       <button className="brand" type="button" onClick={onHome} aria-label="回到首页">
         HANGZHOU METRO TYPING
       </button>
-      <button
-        className="icon-button"
-        type="button"
-        aria-pressed={dark}
-        aria-label={themeLabel}
-        title={themeLabel}
-        onClick={onToggleDark}
-      >
-        {dark ? <SunIcon /> : <MoonIcon />}
-      </button>
+      <div className="top-actions">
+        <button
+          className="icon-button"
+          type="button"
+          aria-pressed={dark}
+          aria-label={themeLabel}
+          title={themeLabel}
+          onClick={onToggleDark}
+        >
+          {dark ? <SunIcon /> : <MoonIcon />}
+        </button>
+        <a
+          className="icon-button github-button"
+          href="https://github.com/Evenss/metro-typing"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="在 GitHub 上查看项目（在新窗口打开）"
+          title="GitHub"
+        >
+          <GitHubIcon />
+        </a>
+      </div>
     </header>
   );
 }
@@ -595,14 +607,14 @@ function SunIcon() {
 function GitHubIcon() {
   return (
     <svg
-      viewBox="0 0 16 16"
-      width="14"
-      height="14"
+      viewBox="0 0 24 24"
+      width="20"
+      height="20"
       fill="currentColor"
       aria-hidden="true"
       focusable="false"
     >
-      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82A7.65 7.65 0 0 1 8 6.8c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8" />
+      <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.385-1.333-1.754-1.333-1.754-1.089-.745.084-.729.084-.729 1.205.084 1.84 1.237 1.84 1.237 1.07 1.835 2.809 1.305 3.495.998.108-.776.418-1.305.762-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23A11.5 11.5 0 0 1 12 5.82c1.02.005 2.045.138 3.003.404 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
     </svg>
   );
 }
@@ -645,15 +657,64 @@ function HomeScreen({
   const uniqueStationCount = new Set(
     data.lines.flatMap((line) => line.stations.map((station) => station.nameZh)),
   ).size;
-  const viewBox = selectedLine
+  const targetViewBox = selectedLine
     ? fitViewBox(linePoints(mapModel, selectedLine), 42, 300)
     : FULL_VIEWBOX;
+  const cityMapRef = useRef<SVGSVGElement>(null);
+  const [mapIntro, setMapIntro] = useState(true);
+
+  useEffect(() => {
+    const maxSegments = Math.max(
+      1,
+      ...data.lines.map((line) => mapModel.lineSegments.get(line.id)?.length ?? 0),
+    );
+    const introDuration =
+      (0.25 + data.lines.length * 0.14 + maxSegments * 0.45 + 1.9) * 1000;
+    const timer = window.setTimeout(() => setMapIntro(false), introDuration);
+    return () => window.clearTimeout(timer);
+  }, [data.lines, mapModel]);
+
+  useEffect(() => {
+    const svg = cityMapRef.current;
+    if (!svg) return undefined;
+
+    const from = (svg.getAttribute("viewBox") ?? FULL_VIEWBOX)
+      .split(/\s+/)
+      .map(Number);
+    const to = targetViewBox.split(/\s+/).map(Number);
+    const startedAt = performance.now();
+    const duration = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ? 1
+      : 680;
+    let frameId = 0;
+
+    const frame = (now: number) => {
+      const progress = Math.min((now - startedAt) / duration, 1);
+      const eased = 1 - (1 - progress) ** 3;
+      svg.setAttribute(
+        "viewBox",
+        from
+          .map((value, index) => value + (to[index] - value) * eased)
+          .join(" "),
+      );
+      if (progress < 1) frameId = requestAnimationFrame(frame);
+    };
+
+    frameId = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(frameId);
+  }, [targetViewBox]);
+
+  const selectLine = (id: string) => {
+    setMapIntro(false);
+    onSelectLine(id);
+  };
 
   return (
     <section className={`home-map-screen${selectedLine ? " focused" : ""}`}>
       <svg
-        className="city-map"
-        viewBox={viewBox}
+        ref={cityMapRef}
+        className={`city-map${mapIntro ? " intro" : ""}`}
+        viewBox={FULL_VIEWBOX}
         role="img"
         aria-label="杭州行政区与地铁运营线路图"
       >
@@ -682,17 +743,22 @@ function HomeScreen({
                 role="button"
                 tabIndex={0}
                 aria-label={`选择${line.lineName}`}
-                style={{ "--route-delay": `${0.18 + lineIndex * 0.08}s` } as CSSProperties}
-                onClick={() => onSelectLine(line.id)}
+                style={{ "--route-delay": `${0.25 + lineIndex * 0.14}s` } as CSSProperties}
+                onClick={() => selectLine(line.id)}
                 onKeyDown={(event: ReactKeyboardEvent<SVGGElement>) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
-                    onSelectLine(line.id);
+                    selectLine(line.id);
                   }
                 }}
               >
                 {segments.map((segment, index) => (
-                  <g key={index}>
+                  <g
+                    key={index}
+                    style={{
+                      "--segment-delay": `${(0.25 + lineIndex * 0.14 + index * 0.45).toFixed(2)}s`,
+                    } as CSSProperties}
+                  >
                     <polyline className="route-hit" points={pointsToString(segment)} />
                     <polyline className="route-casing" points={pointsToString(segment)} pathLength="1" />
                     <polyline
@@ -753,7 +819,7 @@ function HomeScreen({
               className={`route-button${selectedLine?.id === line.id ? " selected" : ""}`}
               type="button"
               style={{ "--route": line.color } as CSSProperties}
-              onClick={() => onSelectLine(line.id)}
+              onClick={() => selectLine(line.id)}
             >
               <span className="route-symbol">{line.lineId}</span>
               <span><strong>{line.lineName}</strong><small>{line.operatorName} · {line.stations.length} 站</small></span>
@@ -1045,20 +1111,7 @@ function Footer({ data }: { data: MetroData | null }) {
       </div>
       <div className="footer-meta">
         <p><span className="footer-label">DATA</span>线路与站名参考 <a href="https://www.hzmetro.com/" target="_blank" rel="noreferrer">杭州地铁</a><span className="footer-sep">·</span>地图边界 <a href="https://geo.datav.aliyun.com/areas_v3/bound/330100_full.json" target="_blank" rel="noreferrer">DataV</a></p>
-        <p>
-          设计参考 <a href="https://tw-metro-typing.yencheng.dev/" target="_blank" rel="noreferrer">Taiwan Metro Typing</a>
-          <span className="footer-sep">·</span>
-          <a
-            className="footer-github"
-            href="https://github.com/Evenss/metro-typing"
-            target="_blank"
-            rel="noreferrer"
-            aria-label="在 GitHub 上查看项目"
-          >
-            <GitHubIcon />
-            <span>github.com/Evenss/metro-typing</span>
-          </a>
-        </p>
+        <p>设计参考 <a href="https://tw-metro-typing.yencheng.dev/" target="_blank" rel="noreferrer">Taiwan Metro Typing</a></p>
       </div>
     </footer>
   );
