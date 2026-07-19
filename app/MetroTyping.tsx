@@ -29,6 +29,12 @@ import {
   isPointInRing,
 } from "../lib/metro/map-geometry";
 import {
+  getGameSafeRect,
+  getMobileKeyboardViewport,
+  getTrackingViewBox,
+  interpolateViewBox,
+} from "../lib/metro/map-camera";
+import {
   getTypingDisplayText,
   getTypingDisplayTokens,
   getTypingTarget,
@@ -43,6 +49,23 @@ type MapModel = {
   districtPaths: Array<{ name: string; path: string }>;
   stationPoints: Map<string, Point>;
   lineSegments: Map<string, Point[][]>;
+};
+
+type ViewBox = [number, number, number, number];
+
+type GameCameraLayout = {
+  width: number;
+  height: number;
+  keyboardOpen: boolean;
+  keyboardTight: boolean;
+  keyboardInset: number;
+  safeRect: {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+  };
+  ready: boolean;
 };
 
 type ResolvedRun = {
@@ -239,6 +262,221 @@ function getRouteViewBox(
     (minY + maxY - height) / 2 +
     height * verticalOffsetRatio
   ).toFixed(2)} ${width.toFixed(2)} ${height.toFixed(2)}`;
+}
+
+function formatViewBox(viewBox: ViewBox) {
+  return viewBox.map((value) => value.toFixed(3)).join(" ");
+}
+
+function viewBoxesEqual(first: ViewBox, second: ViewBox) {
+  return first.every((value, index) => Math.abs(value - second[index]) < 0.001);
+}
+
+function cameraLayoutsEqual(first: GameCameraLayout, second: GameCameraLayout) {
+  return (
+    first.ready === second.ready &&
+    first.keyboardOpen === second.keyboardOpen &&
+    first.keyboardTight === second.keyboardTight &&
+    Math.abs(first.width - second.width) < 0.5 &&
+    Math.abs(first.height - second.height) < 0.5 &&
+    Math.abs(first.keyboardInset - second.keyboardInset) < 0.5 &&
+    Math.abs(first.safeRect.left - second.safeRect.left) < 0.5 &&
+    Math.abs(first.safeRect.top - second.safeRect.top) < 0.5 &&
+    Math.abs(first.safeRect.right - second.safeRect.right) < 0.5 &&
+    Math.abs(first.safeRect.bottom - second.safeRect.bottom) < 0.5
+  );
+}
+
+function createFallbackGameCameraLayout(): GameCameraLayout {
+  const width = typeof window === "undefined" ? 1280 : window.innerWidth;
+  const height = typeof window === "undefined" ? 720 : window.innerHeight;
+  const mobile = width <= 620;
+  const cardHeight = mobile ? 242 : 220;
+  const cardBottom = mobile ? 10 : 28;
+  const scoreBottom = cardHeight + (mobile ? 26 : 46);
+  const scoreHeight = mobile ? 66 : 75;
+  const overlays = {
+    chromeBottom: mobile ? 62 : 76,
+    scoreTop: height - scoreBottom - scoreHeight,
+    cardTop: height - cardBottom - cardHeight,
+  };
+
+  return {
+    width,
+    height,
+    keyboardOpen: false,
+    keyboardTight: false,
+    keyboardInset: 0,
+    safeRect: getGameSafeRect({ width, height }, overlays),
+    ready: false,
+  };
+}
+
+function useGameCameraLayout() {
+  const gameRef = useRef<HTMLElement>(null);
+  const chromeRef = useRef<HTMLDivElement>(null);
+  const scoreRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLElement>(null);
+  const [layout, setLayout] = useState<GameCameraLayout>(
+    createFallbackGameCameraLayout,
+  );
+
+  useEffect(() => {
+    const game = gameRef.current;
+    const chrome = chromeRef.current;
+    const score = scoreRef.current;
+    const card = cardRef.current;
+    if (!game || !chrome || !score || !card) return undefined;
+
+    let measureFrame = 0;
+    const measure = () => {
+      measureFrame = 0;
+      const gameRect = game.getBoundingClientRect();
+      const chromeRect = chrome.getBoundingClientRect();
+      const scoreRect = score.getBoundingClientRect();
+      const cardRect = card.getBoundingClientRect();
+      const styles = window.getComputedStyle(game);
+      const inset = (property: string) =>
+        Number.parseFloat(styles.getPropertyValue(property)) || 0;
+      const width = Math.max(gameRect.width, 1);
+      const height = Math.max(gameRect.height, 1);
+      const visualViewport = window.visualViewport;
+      const gameTopDocument = gameRect.top + window.scrollY;
+      const visualPageTop = visualViewport?.pageTop
+        ?? window.scrollY + (visualViewport?.offsetTop ?? 0);
+      const typingInputFocused =
+        document.activeElement instanceof HTMLInputElement
+        && document.activeElement.classList.contains("mobile-typing-input");
+      const keyboardViewport = getMobileKeyboardViewport({
+        layoutHeight: height,
+        visualHeight: visualViewport?.height ?? height,
+        visualOffsetTop: Math.max(visualPageTop - gameTopDocument, 0),
+        visualScale: visualViewport?.scale ?? 1,
+        mobile: typingInputFocused && window.matchMedia(
+          "(max-width: 620px), (hover: none) and (pointer: coarse)",
+        ).matches,
+      });
+      const overlayTop = (rect: DOMRect) =>
+        rect.width > 0 && rect.height > 0
+          ? rect.top - gameRect.top
+          : undefined;
+      const safeRect = getGameSafeRect(
+        { width, height },
+        {
+          chromeBottom: chromeRect.bottom - gameRect.top,
+          scoreTop: overlayTop(scoreRect),
+          cardTop: overlayTop(cardRect),
+        },
+        {
+          top: inset("--game-safe-area-top"),
+          right: inset("--game-safe-area-right"),
+          bottom: inset("--game-safe-area-bottom"),
+          left: inset("--game-safe-area-left"),
+        },
+      );
+      const nextLayout = {
+        width,
+        height,
+        keyboardOpen: keyboardViewport.open,
+        keyboardTight: keyboardViewport.tight,
+        keyboardInset: keyboardViewport.inset,
+        safeRect,
+        ready: true,
+      };
+      setLayout((currentLayout) =>
+        cameraLayoutsEqual(currentLayout, nextLayout)
+          ? currentLayout
+          : nextLayout,
+      );
+    };
+    const scheduleMeasure = () => {
+      window.cancelAnimationFrame(measureFrame);
+      measureFrame = window.requestAnimationFrame(measure);
+    };
+    const resizeObserver = new ResizeObserver(scheduleMeasure);
+    resizeObserver.observe(game);
+    resizeObserver.observe(chrome);
+    resizeObserver.observe(score);
+    resizeObserver.observe(card);
+    window.addEventListener("resize", scheduleMeasure);
+    window.addEventListener("focusin", scheduleMeasure);
+    window.addEventListener("focusout", scheduleMeasure);
+    window.visualViewport?.addEventListener("resize", scheduleMeasure);
+    window.visualViewport?.addEventListener("scroll", scheduleMeasure);
+    scheduleMeasure();
+
+    return () => {
+      window.cancelAnimationFrame(measureFrame);
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", scheduleMeasure);
+      window.removeEventListener("focusin", scheduleMeasure);
+      window.removeEventListener("focusout", scheduleMeasure);
+      window.visualViewport?.removeEventListener("resize", scheduleMeasure);
+      window.visualViewport?.removeEventListener("scroll", scheduleMeasure);
+    };
+  }, []);
+
+  return { gameRef, chromeRef, scoreRef, cardRef, layout };
+}
+
+function useAnimatedViewBox(target: ViewBox, duration = 340) {
+  const [viewBox, setViewBox] = useState<ViewBox>(target);
+  const [animating, setAnimating] = useState(false);
+  const currentRef = useRef<ViewBox>(target);
+
+  useEffect(() => {
+    const from = currentRef.current;
+    let frameId = 0;
+    if (viewBoxesEqual(from, target)) {
+      currentRef.current = target;
+      frameId = window.requestAnimationFrame(() => {
+        setViewBox(target);
+        setAnimating(false);
+      });
+      return () => window.cancelAnimationFrame(frameId);
+    }
+
+    const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    if (motionQuery.matches) {
+      frameId = window.requestAnimationFrame(() => {
+        currentRef.current = target;
+        setViewBox(target);
+        setAnimating(false);
+      });
+      return () => window.cancelAnimationFrame(frameId);
+    }
+
+    const startedAt = performance.now();
+    let animationStarted = false;
+
+    const frame = (now: number) => {
+      if (!animationStarted) {
+        animationStarted = true;
+        setAnimating(true);
+      }
+      if (motionQuery.matches) {
+        currentRef.current = target;
+        setViewBox(target);
+        setAnimating(false);
+        return;
+      }
+      const progress = Math.min((now - startedAt) / duration, 1);
+      const eased = 1 - (1 - progress) ** 3;
+      const nextViewBox = interpolateViewBox(from, target, eased) as ViewBox;
+      currentRef.current = nextViewBox;
+      setViewBox(nextViewBox);
+      if (progress < 1) {
+        frameId = window.requestAnimationFrame(frame);
+      } else {
+        setAnimating(false);
+      }
+    };
+
+    frameId = window.requestAnimationFrame(frame);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [duration, target]);
+
+  return { viewBox, animating };
 }
 
 function useTypingTargetFit(target: string) {
@@ -1335,6 +1573,8 @@ function GameScreen({
 }) {
   const current = stations[stationIndex];
   const next = stations[stationIndex + 1] ?? null;
+  const { gameRef, chromeRef, scoreRef, cardRef, layout: cameraLayout } =
+    useGameCameraLayout();
   const displayText = getTypingDisplayText(current, language);
   const targetLabel = language === "pinyin" ? current.namePinyin : current.nameEn;
   const targetWords = useMemo(
@@ -1342,23 +1582,80 @@ function GameScreen({
     [displayText],
   );
   const { targetRef, trackRef } = useTypingTargetFit(displayText);
-  const currentPoint = mapModel.stationPoints.get(current.id) ?? [0, 0];
-  const nextPoint = next ? mapModel.stationPoints.get(next.id) ?? currentPoint : currentPoint;
+  const currentPoint = useMemo<Point>(
+    () => mapModel.stationPoints.get(current.id) ?? [0, 0],
+    [current.id, mapModel],
+  );
+  const nextPoint = useMemo<Point>(
+    () => next
+      ? mapModel.stationPoints.get(next.id) ?? currentPoint
+      : currentPoint,
+    [currentPoint, mapModel, next],
+  );
   const trainProgress = targetCharacters.length ? typedIndex / targetCharacters.length : 0;
   const trainPoint: Point = [
     currentPoint[0] + (nextPoint[0] - currentPoint[0]) * trainProgress,
     currentPoint[1] + (nextPoint[1] - currentPoint[1]) * trainProgress,
   ];
-  const progressPoints = stations
-    .slice(0, stationIndex + 1)
-    .map((station) => mapModel.stationPoints.get(station.id))
-    .filter((point): point is Point => Boolean(point));
+  const journeyPoints = useMemo(
+    () =>
+      stations
+        .map((station) => mapModel.stationPoints.get(station.id))
+        .filter((point): point is Point => Boolean(point)),
+    [mapModel, stations],
+  );
+  const progressPoints = journeyPoints.slice(0, stationIndex + 1);
   if (trainProgress > 0) progressPoints.push(trainPoint);
-  const gameViewBox = getRouteViewBox(
-    linePoints(mapModel, line),
-    280,
-    40,
-    0.14,
+  const cameraFocusPoints = useMemo(
+    () =>
+      stations
+        .slice(
+          Math.max(0, stationIndex - 1),
+          Math.min(stations.length, stationIndex + 3),
+        )
+        .map((station) => mapModel.stationPoints.get(station.id))
+        .filter((point): point is Point => Boolean(point)),
+    [mapModel, stationIndex, stations],
+  );
+  const cameraTargetViewBox = useMemo(() => {
+    const minimumWidth =
+      cameraLayout.width <= 620
+        ? 260
+        : Math.min(Math.max(cameraLayout.width / 4, 340), 420);
+    const options = {
+      anchorPoint: currentPoint,
+      headingPoint: next ? nextPoint : null,
+      minimumWidth,
+      padding: 30,
+      forwardBias: 0.14,
+    };
+    const segmentTarget = getTrackingViewBox(
+      next ? [currentPoint, nextPoint] : [currentPoint],
+      cameraLayout,
+      cameraLayout.safeRect,
+      options,
+    ) as ViewBox;
+    const contextTarget = getTrackingViewBox(
+      cameraFocusPoints,
+      cameraLayout,
+      cameraLayout.safeRect,
+      options,
+    ) as ViewBox;
+    const contextSoftMaximum =
+      cameraLayout.width <= 620
+        ? 420
+        : Math.min(Math.max(cameraLayout.width / 2, 560), 720);
+    return contextTarget[2] <= contextSoftMaximum
+      ? contextTarget
+      : segmentTarget;
+  }, [cameraFocusPoints, cameraLayout, currentPoint, next, nextPoint]);
+  const { viewBox: cameraViewBox, animating: cameraAnimating } =
+    useAnimatedViewBox(cameraTargetViewBox);
+  const mapPixelsPerUnit =
+    cameraLayout.width / Math.max(cameraViewBox[2], 1);
+  const trainGlyphScale = Math.min(
+    Math.max(36 / Math.max(20 * mapPixelsPerUnit, 1), 0.2),
+    4,
   );
   const routeEnd = stations.at(-1);
   const passedStationIds = new Set(
@@ -1367,30 +1664,39 @@ function GameScreen({
   const showTypingHint = language === "pinyin" || inputMethodWarning;
 
   return (
-    <section className="game" style={{ "--active-route": line.color } as CSSProperties}>
+    <section
+      ref={gameRef}
+      className="game"
+      data-camera-ready={cameraLayout.ready ? "true" : "false"}
+      data-camera-state={cameraAnimating ? "reframing" : "tracking"}
+      data-keyboard-open={cameraLayout.keyboardOpen ? "true" : "false"}
+      data-keyboard-tight={cameraLayout.keyboardTight ? "true" : "false"}
+      style={{
+        "--active-route": line.color,
+        "--game-keyboard-inset": `${cameraLayout.keyboardInset}px`,
+      } as CSSProperties}
+    >
       <p className="screen-reader-status" aria-live="polite" aria-atomic="true">
         当前车站 {current.nameZh}，请输入 {targetLabel}
       </p>
-      <svg className="game-map" viewBox={gameViewBox} aria-hidden="true">
+      <svg
+        className="game-map"
+        viewBox={formatViewBox(cameraViewBox)}
+        aria-hidden="true"
+      >
         <g className="game-districts">
           {mapModel.districtPaths.map((district) => <path key={district.name} d={district.path} />)}
         </g>
         {data.lines.flatMap((networkLine) =>
           (mapModel.lineSegments.get(networkLine.id) ?? []).map((segment, index) => (
-            <polyline key={`${networkLine.id}-${index}`} className={`game-line${networkLine.id === line.id ? " selected" : " network"}`} points={pointsToString(segment)} stroke={networkLine.color} />
+            <polyline key={`${networkLine.id}-${index}`} className="game-line network" points={pointsToString(segment)} stroke={networkLine.color} />
           )),
         )}
-        {(mapModel.lineSegments.get(line.id) ?? []).map((segment, index) => (
-          <polyline key={`casing-${index}`} className="game-casing" points={pointsToString(segment)} />
-        ))}
-        {(mapModel.lineSegments.get(line.id) ?? []).map((segment, index) => (
-          <polyline key={`active-${index}`} className="game-line selected" points={pointsToString(segment)} stroke={line.color} />
-        ))}
+        {journeyPoints.length > 1 ? <polyline className="game-casing" points={pointsToString(journeyPoints)} /> : null}
+        {journeyPoints.length > 1 ? <polyline className="game-line selected" points={pointsToString(journeyPoints)} stroke={line.color} /> : null}
         {progressPoints.length > 1 ? <polyline className="game-progress" points={pointsToString(progressPoints)} stroke={line.color} /> : null}
-        {line.stationIds.map((stationId) => {
-          const station = data.stations[stationId];
-          const point = mapModel.stationPoints.get(stationId);
-          if (!station) return null;
+        {stations.map((station) => {
+          const point = mapModel.stationPoints.get(station.id);
           if (!point) return null;
           const state = station.id === current.id
             ? " current"
@@ -1399,33 +1705,46 @@ function GameScreen({
               : passedStationIds.has(station.id)
                 ? " passed"
                 : "";
-          return <circle key={station.id} className={`game-node${state}`} cx={point[0]} cy={point[1]} r="2.4" />;
+          return <circle key={station.id} data-station-id={station.id} className={`game-node${state}`} cx={point[0]} cy={point[1]} r="2.4" />;
         })}
-        <g className="map-train" style={{ transform: `translate(${trainPoint[0]}px, ${trainPoint[1]}px)` }}>
-          <circle className="train-halo" r="14" />
-          <rect className="train-body" x="-10" y="-7" width="20" height="14" rx="4" />
-          <rect className="train-window" x="-6" y="-3.5" width="4" height="4" rx="1" />
-          <rect className="train-window" x="2" y="-3.5" width="4" height="4" rx="1" />
+        <g
+          className="map-train"
+          data-station-index={stationIndex}
+          style={{ transform: `translate(${trainPoint[0]}px, ${trainPoint[1]}px)` }}
+        >
+          <g className="train-glyph" transform={`scale(${trainGlyphScale})`}>
+            <circle className="train-halo" r="14" />
+            <rect className="train-body" x="-10" y="-7" width="20" height="14" rx="4" />
+            <rect className="train-window" x="-6" y="-3.5" width="4" height="4" rx="1" />
+            <rect className="train-window" x="2" y="-3.5" width="4" height="4" rx="1" />
+          </g>
         </g>
       </svg>
 
-      <div className="game-chrome">
+      <div ref={chromeRef} className="game-chrome">
         <button className="back-button" type="button" onClick={onBack}>← 返回选线 <kbd>ESC</kbd></button>
         <div className="route-pill" style={{ background: line.color }}>{line.lineName} · 往 {routeEnd?.nameZh}</div>
       </div>
 
-      <div className="scorebar">
+      <div ref={scoreRef} className="scorebar">
         <Metric label={mode === "timed" ? "剩余" : "经过"} value={mode === "timed" ? remainingSeconds : elapsedSeconds} unit="秒" />
         <Metric label="到站" value={completedStations} unit="站" />
         <Metric label="速度" value={speed} unit={language === "pinyin" ? "KPM" : "WPM"} />
         <Metric label="正确率" value={accuracy} unit="%" />
       </div>
 
-      <article className={`station-card${shake ? " shake" : ""}`} onClick={onFocusTyping}>
+      <article ref={cardRef} className={`station-card${shake ? " shake" : ""}`} onClick={onFocusTyping}>
         <div className="station-meta"><span>{String(stationIndex + 1).padStart(2, "0")}</span><span>{city.nameZh}市 · {line.lineName} · 数据 {data.updatedAt}</span></div>
         <div className="station-main">
           <div><p>NOW ARRIVING</p><h2>{current.nameZh}</h2></div>
           <div className="next-station"><span>{next ? "下一站" : "终点站"}</span><strong>{next?.nameZh ?? "本线终点"}</strong>{next ? <b>→</b> : null}</div>
+        </div>
+        <div className="keyboard-typing-meta">
+          <strong>{current.nameZh}</strong>
+          <span>
+            {mode === "timed" ? `剩余 ${remainingSeconds} 秒` : `经过 ${elapsedSeconds} 秒`}
+            {` · ${stationIndex + 1}/${stations.length} 站`}
+          </span>
         </div>
         <div className={`typing-area${showTypingHint ? " has-hint" : ""}`}>
           <div ref={targetRef} className="typing-target" aria-label={`请输入 ${targetLabel}`}>

@@ -36,6 +36,10 @@ jobs:
         env:
           PAGES_BASE_URL: https://metro-typing.fun
         run: npm run build
+      - name: Run tests
+        env:
+          PAGES_BASE_URL: https://metro-typing.fun
+        run: node --test tests/*.test.mjs
       - name: Upload artifact
         if: ${{ github.event_name == 'push' }}
         uses: actions/upload-pages-artifact@v5

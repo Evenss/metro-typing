@@ -497,6 +497,10 @@ kbd {
 
 .game {
   --game-card-height: 220px;
+  --game-safe-area-top: env(safe-area-inset-top, 0px);
+  --game-safe-area-right: env(safe-area-inset-right, 0px);
+  --game-safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --game-safe-area-left: env(safe-area-inset-left, 0px);
   position: relative;
   min-height: 100vh;
   min-height: 100dvh;
@@ -517,7 +521,7 @@ kbd {
 .game-node.passed { fill: var(--active-route); stroke: white; opacity: 1; }
 .game-node.current { fill: var(--green); stroke: #111; stroke-width: 3; opacity: 1; }
 .game-node.next { fill: var(--card); stroke: var(--active-route); stroke-width: 3; opacity: 1; }
-.map-train { filter: drop-shadow(0 5px 6px rgba(0,0,0,.32)); transition: transform 0.18s cubic-bezier(.2,.8,.2,1); }
+.map-train { pointer-events: none; filter: drop-shadow(0 5px 6px rgba(0,0,0,.32)); transition: transform 0.18s cubic-bezier(.2,.8,.2,1); will-change: transform; }
 .train-halo { fill: color-mix(in srgb, var(--active-route) 28%, transparent); animation: train-pulse 1.2s ease-in-out infinite; }
 .train-body { fill: var(--ink); stroke: white; stroke-width: 2; vector-effect: non-scaling-stroke; }
 .train-window { fill: var(--green); }
@@ -558,6 +562,7 @@ kbd {
 .station-meta { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); align-items: center; gap: 20px; padding: 8px 24px 0; color: var(--muted); font: 500 10px "DM Mono", monospace; }
 .station-meta span:first-child { color: var(--active-route); font-weight: 700; }
 .station-meta span:last-child { min-width: 0; overflow: hidden; text-align: right; white-space: nowrap; text-overflow: ellipsis; }
+.keyboard-typing-meta { display: none; }
 .station-main { display: flex; justify-content: space-between; align-items: center; gap: 24px; padding: 8px 24px 30px; }
 .station-main p { margin: 0 0 7px; color: var(--muted); font: 500 10px "DM Mono", monospace; letter-spacing: 0.14em; }
 .station-main h2 { margin: 0; font-size: clamp(38px, 5vw, 58px); line-height: 1; letter-spacing: -0.06em; white-space: nowrap; }
@@ -662,7 +667,7 @@ footer a:hover { color: var(--accent-dark); text-decoration-color: currentColor;
   .segment-option { flex: 1 1 0; min-width: 0; padding-inline: 8px; }
   .option-toolbar .start-button { grid-column: 1 / -1; min-height: 50px; }
   .game { --game-card-height: 242px; }
-  .game-chrome { top: 14px; left: 12px; right: 12px; }
+  .game-chrome { top: max(14px, var(--game-safe-area-top)); left: max(12px, var(--game-safe-area-left)); right: max(12px, var(--game-safe-area-right)); }
   .game-chrome kbd { display: none; }
   .route-pill { max-width: 48%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .scorebar { width: calc(100% - 24px); bottom: calc(var(--game-card-height) + 26px); }
@@ -678,6 +683,65 @@ footer a:hover { color: var(--accent-dark); text-decoration-color: currentColor;
   .result-actions { flex-direction: column; }
   footer { flex-direction: column; align-items: flex-start; padding: 22px 20px 26px; }
   .footer-meta { align-items: flex-start; }
+}
+
+@media (max-width: 620px), (hover: none) and (pointer: coarse) {
+  .mobile-typing-input {
+    top: max(1px, env(safe-area-inset-top));
+    bottom: auto;
+  }
+}
+
+.game[data-keyboard-open="true"] {
+  --game-card-height: 126px;
+}
+.game[data-keyboard-open="true"] .scorebar { display: none; }
+.game[data-keyboard-open="true"] .station-card {
+  bottom: calc(var(--game-keyboard-inset, 0px) + 8px);
+  width: min(560px, calc(100% - 24px));
+  height: var(--game-card-height);
+  grid-template-rows: 36px minmax(0, 1fr);
+  border-radius: 14px;
+}
+.game[data-keyboard-open="true"] .station-meta,
+.game[data-keyboard-open="true"] .station-main,
+.game[data-keyboard-open="true"] .line-strip { display: none; }
+.game[data-keyboard-open="true"] .keyboard-typing-meta {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 14px 5px;
+  border-bottom: 1px solid var(--line);
+}
+.game[data-keyboard-open="true"] .keyboard-typing-meta strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 18px;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.game[data-keyboard-open="true"] .keyboard-typing-meta span {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font: 600 10px "DM Mono", monospace;
+  white-space: nowrap;
+}
+.game[data-keyboard-open="true"] .typing-area { border-top: 0; }
+.game[data-keyboard-open="true"] .typing-target {
+  --typing-min-font-size: 16px;
+  padding: 5px 12px 7px;
+  font-size: clamp(19px, 6vw, 28px);
+}
+.game[data-keyboard-tight="true"] .route-pill { display: none; }
+.game[data-keyboard-tight="true"] .game-chrome { justify-content: flex-start; }
+.game[data-keyboard-tight="true"] .game-map { opacity: .12; }
+.game[data-keyboard-tight="true"] .back-button {
+  min-height: 38px;
+  padding: 8px 10px;
+  font-size: 12px;
 }
 
 @media (max-width: 380px) {

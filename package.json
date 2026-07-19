@@ -12,7 +12,7 @@
     "prepare:data": "npm run prepare:cities",
     "prepare:cities": "node scripts/prepare-hangzhou-data.mjs && node scripts/prepare-city-data.mjs && node scripts/validate-metro-data.mjs",
     "validate:data": "node scripts/validate-metro-data.mjs",
-    "test": "npm run build && node --test tests/rendered-html.test.mjs",
+    "test": "npm run build && node --test tests/*.test.mjs",
     "lint": "eslint . --ignore-pattern out --ignore-pattern .next --ignore-pattern dist"
   },
   "dependencies": {

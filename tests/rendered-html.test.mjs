@@ -22,6 +22,11 @@ import {
 const repo = new URL("../", import.meta.url);
 const repoPath = fileURLToPath(repo);
 const out = new URL("../out/", import.meta.url);
+const pagesBaseUrl = process.env.PAGES_BASE_URL ?? "http://localhost:3000";
+
+function escapeRegularExpression(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 const cityExpectations = {
   hangzhou: { nameZh: "杭州", nameEn: "HANGZHOU", lines: 12, stations: 259 },
@@ -51,7 +56,9 @@ test("exports one canonical static page for every supported city", async () => {
     );
     assert.match(
       html,
-      new RegExp(`rel="canonical" href="http://localhost:3000/${cityId}/`),
+      new RegExp(
+        `rel="canonical" href="${escapeRegularExpression(pagesBaseUrl)}/${cityId}/`,
+      ),
     );
     assert.doesNotMatch(html, /codex-preview|Your site is taking shape|Starter Project/);
     await access(new URL(`data/metro/${cityId}.json`, out));
@@ -61,7 +68,9 @@ test("exports one canonical static page for every supported city", async () => {
   assert.match(rootHtml, /HANGZHOU METRO TYPING/);
   assert.match(
     rootHtml,
-    /rel="canonical" href="http:\/\/localhost:3000\/hangzhou\//,
+    new RegExp(
+      `rel="canonical" href="${escapeRegularExpression(pagesBaseUrl)}/hangzhou/`,
+    ),
   );
 });
 
@@ -314,7 +323,10 @@ test("ships complete static assets and generic multi-city runtime", async () => 
   assert.match(packageJson, /"name": "metro-typing"/);
   assert.doesNotMatch(packageJson, /vinext|wrangler|drizzle|cloudflare|vite/);
   for (const cityId of cityIds) {
-    assert.match(sitemap, new RegExp(`http://localhost:3000/${cityId}/`));
+    assert.match(
+      sitemap,
+      new RegExp(`${escapeRegularExpression(pagesBaseUrl)}/${cityId}/`),
+    );
   }
   await assert.rejects(access(new URL("data/hangzhou-metro.json", out)));
   await assert.rejects(access(new URL("worker/", repo)));
