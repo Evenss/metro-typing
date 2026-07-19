@@ -35,6 +35,13 @@ import {
   interpolateViewBox,
 } from "../lib/metro/map-camera";
 import {
+  ARRIVAL_CHIME_NOTES,
+  ARRIVAL_CHIME_PARTIALS,
+  ARRIVAL_CHIME_STRIKE,
+  ARRIVAL_FEEDBACK_DURATION_MS,
+  shouldPlayArrivalChime,
+} from "../lib/metro/arrival-feedback";
+import {
   getTypingDisplayText,
   getTypingDisplayTokens,
   getTypingTarget,
@@ -66,6 +73,12 @@ type GameCameraLayout = {
     bottom: number;
   };
   ready: boolean;
+};
+
+type ArrivalFeedback = {
+  sequence: number;
+  stationId: string;
+  stationName: string;
 };
 
 type ResolvedRun = {
@@ -632,6 +645,8 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
   const [elapsedMs, setElapsedMs] = useState(0);
   const [shake, setShake] = useState(false);
   const [inputMethodWarning, setInputMethodWarning] = useState(false);
+  const [arrivalFeedback, setArrivalFeedback] =
+    useState<ArrivalFeedback | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const playingRef = useRef(false);
@@ -643,6 +658,13 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
   const languageRef = useRef<TypingLanguage>(typingLanguage);
   const composingRef = useRef(false);
   const discardCompositionInputRef = useRef(false);
+  const arrivalSequenceRef = useRef(0);
+  const arrivalTimeoutRef = useRef<number | null>(null);
+  const arrivalAudioContextRef = useRef<AudioContext | null>(null);
+  const arrivalAudioSourcesRef = useRef<Set<AudioScheduledSourceNode>>(new Set());
+  const arrivalStrikeBufferRef = useRef<AudioBuffer | null>(null);
+  const arrivalAudioGenerationRef = useRef(0);
+  const lastArrivalChimeAtRef = useRef(Number.NEGATIVE_INFINITY);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -725,6 +747,202 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
     }
   }, []);
 
+  const clearArrivalFeedback = useCallback(() => {
+    if (arrivalTimeoutRef.current !== null) {
+      window.clearTimeout(arrivalTimeoutRef.current);
+      arrivalTimeoutRef.current = null;
+    }
+    setArrivalFeedback(null);
+  }, []);
+
+  const getArrivalAudioContext = useCallback(() => {
+    if (arrivalAudioContextRef.current?.state === "closed") {
+      arrivalAudioContextRef.current = null;
+      arrivalStrikeBufferRef.current = null;
+    }
+    if (arrivalAudioContextRef.current) return arrivalAudioContextRef.current;
+
+    const AudioContextConstructor = window.AudioContext
+      ?? (window as typeof window & {
+        webkitAudioContext?: typeof AudioContext;
+      }).webkitAudioContext;
+    if (!AudioContextConstructor) return null;
+
+    try {
+      const context = new AudioContextConstructor();
+      arrivalAudioContextRef.current = context;
+      arrivalStrikeBufferRef.current = null;
+      return context;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const stopArrivalChime = useCallback(() => {
+    arrivalAudioGenerationRef.current += 1;
+    for (const source of arrivalAudioSourcesRef.current) {
+      try {
+        source.stop();
+      } catch {
+        // The source may already have reached its scheduled end.
+      }
+    }
+    arrivalAudioSourcesRef.current.clear();
+  }, []);
+
+  const prepareArrivalAudio = useCallback(() => {
+    const context = getArrivalAudioContext();
+    if (context && context.state !== "running") {
+      void context.resume().catch(() => undefined);
+    }
+  }, [getArrivalAudioContext]);
+
+  const playArrivalChime = useCallback(() => {
+    const context = getArrivalAudioContext();
+    if (!context || context.state === "closed") return;
+    const generation = arrivalAudioGenerationRef.current;
+
+    const scheduleChime = () => {
+      if (
+        generation !== arrivalAudioGenerationRef.current
+        || context.state === "closed"
+      ) {
+        return;
+      }
+      const playedAt = performance.now();
+      if (!shouldPlayArrivalChime(lastArrivalChimeAtRef.current, playedAt)) {
+        return;
+      }
+      lastArrivalChimeAtRef.current = playedAt;
+      const startAt = context.currentTime + 0.008;
+      let strikeBuffer = arrivalStrikeBufferRef.current;
+      if (!strikeBuffer || strikeBuffer.sampleRate !== context.sampleRate) {
+        const frameCount = Math.max(
+          1,
+          Math.ceil(context.sampleRate * ARRIVAL_CHIME_STRIKE.duration),
+        );
+        strikeBuffer = context.createBuffer(1, frameCount, context.sampleRate);
+        const strikeSamples = strikeBuffer.getChannelData(0);
+        for (let index = 0; index < strikeSamples.length; index += 1) {
+          strikeSamples[index] =
+            (Math.random() * 2 - 1) * (1 - index / strikeSamples.length);
+        }
+        arrivalStrikeBufferRef.current = strikeBuffer;
+      }
+
+      for (const note of ARRIVAL_CHIME_NOTES) {
+        const noteStart = startAt + note.delay;
+        for (const partial of ARRIVAL_CHIME_PARTIALS) {
+          const partialEnd = noteStart + note.duration * partial.decay;
+          const oscillator = context.createOscillator();
+          const gain = context.createGain();
+          oscillator.type = "sine";
+          oscillator.frequency.setValueAtTime(
+            note.frequency * partial.ratio,
+            noteStart,
+          );
+          oscillator.detune.setValueAtTime(partial.detune, noteStart);
+          gain.gain.setValueAtTime(0.0001, noteStart);
+          gain.gain.exponentialRampToValueAtTime(
+            note.gain * partial.level,
+            noteStart + partial.attack,
+          );
+          gain.gain.exponentialRampToValueAtTime(0.0001, partialEnd);
+          oscillator.connect(gain);
+          gain.connect(context.destination);
+          arrivalAudioSourcesRef.current.add(oscillator);
+          oscillator.start(noteStart);
+          oscillator.stop(partialEnd + 0.01);
+          oscillator.addEventListener("ended", () => {
+            arrivalAudioSourcesRef.current.delete(oscillator);
+            oscillator.disconnect();
+            gain.disconnect();
+          }, { once: true });
+        }
+
+        const strikeEnd = noteStart + ARRIVAL_CHIME_STRIKE.duration;
+        const strikeSource = context.createBufferSource();
+        const highpass = context.createBiquadFilter();
+        const bandpass = context.createBiquadFilter();
+        const strikeGain = context.createGain();
+        strikeSource.buffer = strikeBuffer;
+        highpass.type = "highpass";
+        highpass.frequency.setValueAtTime(
+          ARRIVAL_CHIME_STRIKE.highpass,
+          noteStart,
+        );
+        bandpass.type = "bandpass";
+        bandpass.frequency.setValueAtTime(
+          ARRIVAL_CHIME_STRIKE.bandpass,
+          noteStart,
+        );
+        bandpass.Q.setValueAtTime(ARRIVAL_CHIME_STRIKE.q, noteStart);
+        strikeGain.gain.setValueAtTime(0.0001, noteStart);
+        strikeGain.gain.exponentialRampToValueAtTime(
+          ARRIVAL_CHIME_STRIKE.gain,
+          noteStart + ARRIVAL_CHIME_STRIKE.attack,
+        );
+        strikeGain.gain.exponentialRampToValueAtTime(0.0001, strikeEnd);
+        strikeSource.connect(highpass);
+        highpass.connect(bandpass);
+        bandpass.connect(strikeGain);
+        strikeGain.connect(context.destination);
+        arrivalAudioSourcesRef.current.add(strikeSource);
+        strikeSource.start(noteStart);
+        strikeSource.stop(strikeEnd + 0.01);
+        strikeSource.addEventListener("ended", () => {
+          arrivalAudioSourcesRef.current.delete(strikeSource);
+          strikeSource.disconnect();
+          highpass.disconnect();
+          bandpass.disconnect();
+          strikeGain.disconnect();
+        }, { once: true });
+      }
+    };
+
+    if (context.state !== "running") {
+      void context.resume().then(scheduleChime).catch(() => undefined);
+      return;
+    }
+    scheduleChime();
+  }, [getArrivalAudioContext]);
+
+  const triggerArrivalFeedback = useCallback(
+    (station: Station) => {
+      const sequence = arrivalSequenceRef.current + 1;
+      arrivalSequenceRef.current = sequence;
+      if (arrivalTimeoutRef.current !== null) {
+        window.clearTimeout(arrivalTimeoutRef.current);
+      }
+      setArrivalFeedback({
+        sequence,
+        stationId: station.id,
+        stationName: station.nameZh,
+      });
+      playArrivalChime();
+      arrivalTimeoutRef.current = window.setTimeout(() => {
+        arrivalTimeoutRef.current = null;
+        setArrivalFeedback((currentFeedback) =>
+          currentFeedback?.sequence === sequence ? null : currentFeedback,
+        );
+      }, ARRIVAL_FEEDBACK_DURATION_MS);
+    },
+    [playArrivalChime],
+  );
+
+  useEffect(() => () => {
+    if (arrivalTimeoutRef.current !== null) {
+      window.clearTimeout(arrivalTimeoutRef.current);
+    }
+    stopArrivalChime();
+    const context = arrivalAudioContextRef.current;
+    arrivalAudioContextRef.current = null;
+    arrivalStrikeBufferRef.current = null;
+    if (context && context.state !== "closed") {
+      void context.close().catch(() => undefined);
+    }
+  }, [stopArrivalChime]);
+
   const finishGame = useCallback((finalElapsed?: number) => {
     if (!playingRef.current) return;
     playingRef.current = false;
@@ -757,10 +975,14 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
             modeRef.current === "line" &&
             stationIndexRef.current >= stations.length - 1
           ) {
+            typedIndexRef.current = nextTypedIndex;
+            setTypedIndex(nextTypedIndex);
+            triggerArrivalFeedback(current);
             finishGame(performance.now() - startedAtRef.current);
             return;
           }
           const nextStationIndex = (stationIndexRef.current + 1) % stations.length;
+          triggerArrivalFeedback(stations[nextStationIndex]);
           stationIndexRef.current = nextStationIndex;
           typedIndexRef.current = 0;
           setStationIndex(nextStationIndex);
@@ -776,7 +998,7 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
         window.setTimeout(() => setShake(false), 170);
       }
     },
-    [finishGame],
+    [finishGame, triggerArrivalFeedback],
   );
 
   const consumeInput = useCallback(
@@ -811,6 +1033,8 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
       if (event.key === "Escape") {
         if (screen === "game") {
           playingRef.current = false;
+          clearArrivalFeedback();
+          stopArrivalChime();
           resetTypingInput();
           setScreen("home");
           setSelectedLineId(null);
@@ -837,7 +1061,7 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [handleCharacter, resetTypingInput, screen, selectedLineId]);
+  }, [clearArrivalFeedback, handleCharacter, resetTypingInput, screen, selectedLineId, stopArrivalChime]);
 
   function selectLine(id: string) {
     setSelectedLineId(id);
@@ -848,6 +1072,8 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
 
   function resetHome(clearLine = true) {
     playingRef.current = false;
+    clearArrivalFeedback();
+    stopArrivalChime();
     resetTypingInput();
     setScreen("home");
     if (clearLine) setSelectedLineId(null);
@@ -857,6 +1083,11 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
 
   function startGame() {
     if (!selectedLine || !selectedDirection?.stations.length) return;
+    stopArrivalChime();
+    clearArrivalFeedback();
+    arrivalSequenceRef.current = 0;
+    lastArrivalChimeAtRef.current = Number.NEGATIVE_INFINITY;
+    prepareArrivalAudio();
     resetTypingInput(false);
     const stations = [...selectedDirection.stations];
     gameStationsRef.current = stations;
@@ -978,6 +1209,7 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
             accuracy={accuracy}
             mode={mode}
             shake={shake}
+            arrivalFeedback={arrivalFeedback}
             onBack={() => resetHome(true)}
             onFocusTyping={() => inputRef.current?.focus({ preventScroll: true })}
           />
@@ -1548,6 +1780,7 @@ function GameScreen({
   accuracy,
   mode,
   shake,
+  arrivalFeedback,
   onBack,
   onFocusTyping,
 }: {
@@ -1568,11 +1801,13 @@ function GameScreen({
   accuracy: number;
   mode: GameMode;
   shake: boolean;
+  arrivalFeedback: ArrivalFeedback | null;
   onBack: () => void;
   onFocusTyping: () => void;
 }) {
   const current = stations[stationIndex];
   const next = stations[stationIndex + 1] ?? null;
+  const arrivalActive = arrivalFeedback?.stationId === current.id;
   const { gameRef, chromeRef, scoreRef, cardRef, layout: cameraLayout } =
     useGameCameraLayout();
   const displayText = getTypingDisplayText(current, language);
@@ -1592,6 +1827,9 @@ function GameScreen({
       : currentPoint,
     [currentPoint, mapModel, next],
   );
+  const arrivalPoint = arrivalFeedback
+    ? mapModel.stationPoints.get(arrivalFeedback.stationId) ?? null
+    : null;
   const trainProgress = targetCharacters.length ? typedIndex / targetCharacters.length : 0;
   const trainPoint: Point = [
     currentPoint[0] + (nextPoint[0] - currentPoint[0]) * trainProgress,
@@ -1671,12 +1909,14 @@ function GameScreen({
       data-camera-state={cameraAnimating ? "reframing" : "tracking"}
       data-keyboard-open={cameraLayout.keyboardOpen ? "true" : "false"}
       data-keyboard-tight={cameraLayout.keyboardTight ? "true" : "false"}
+      data-arrival={arrivalActive ? "true" : "false"}
       style={{
         "--active-route": line.color,
         "--game-keyboard-inset": `${cameraLayout.keyboardInset}px`,
       } as CSSProperties}
     >
       <p className="screen-reader-status" aria-live="polite" aria-atomic="true">
+        {arrivalActive ? `已到达 ${arrivalFeedback.stationName}。` : ""}
         当前车站 {current.nameZh}，请输入 {targetLabel}
       </p>
       <svg
@@ -1705,18 +1945,35 @@ function GameScreen({
               : passedStationIds.has(station.id)
                 ? " passed"
                 : "";
-          return <circle key={station.id} data-station-id={station.id} className={`game-node${state}`} cx={point[0]} cy={point[1]} r="2.4" />;
+          const arrivalState = station.id === arrivalFeedback?.stationId
+            ? " arrived"
+            : "";
+          return <circle key={station.id} data-station-id={station.id} className={`game-node${state}${arrivalState}`} cx={point[0]} cy={point[1]} r="2.4" />;
         })}
+        {arrivalPoint && arrivalFeedback ? (
+          <circle
+            key={`arrival-${arrivalFeedback.sequence}`}
+            className="station-arrival-ring"
+            cx={arrivalPoint[0]}
+            cy={arrivalPoint[1]}
+            r="7"
+          />
+        ) : null}
         <g
           className="map-train"
           data-station-index={stationIndex}
           style={{ transform: `translate(${trainPoint[0]}px, ${trainPoint[1]}px)` }}
         >
-          <g className="train-glyph" transform={`scale(${trainGlyphScale})`}>
-            <circle className="train-halo" r="14" />
-            <rect className="train-body" x="-10" y="-7" width="20" height="14" rx="4" />
-            <rect className="train-window" x="-6" y="-3.5" width="4" height="4" rx="1" />
-            <rect className="train-window" x="2" y="-3.5" width="4" height="4" rx="1" />
+          <g
+            key={arrivalFeedback?.sequence ?? "idle"}
+            className={`train-arrival${arrivalActive ? " is-arriving" : ""}`}
+          >
+            <g className="train-glyph" transform={`scale(${trainGlyphScale})`}>
+              <circle className="train-halo" r="14" />
+              <rect className="train-body" x="-10" y="-7" width="20" height="14" rx="4" />
+              <rect className="train-window" x="-6" y="-3.5" width="4" height="4" rx="1" />
+              <rect className="train-window" x="2" y="-3.5" width="4" height="4" rx="1" />
+            </g>
           </g>
         </g>
       </svg>
@@ -1733,14 +1990,14 @@ function GameScreen({
         <Metric label="正确率" value={accuracy} unit="%" />
       </div>
 
-      <article ref={cardRef} className={`station-card${shake ? " shake" : ""}`} onClick={onFocusTyping}>
+      <article ref={cardRef} className={`station-card${shake ? " shake" : ""}${arrivalActive ? " arriving" : ""}`} onClick={onFocusTyping}>
         <div className="station-meta"><span>{String(stationIndex + 1).padStart(2, "0")}</span><span>{city.nameZh}市 · {line.lineName} · 数据 {data.updatedAt}</span></div>
         <div className="station-main">
-          <div><p>NOW ARRIVING</p><h2>{current.nameZh}</h2></div>
+          <div><p className={arrivalActive ? "arrival-kicker" : undefined}>{arrivalActive ? "✓ 已到达" : "NOW ARRIVING"}</p><h2>{current.nameZh}</h2></div>
           <div className="next-station"><span>{next ? "下一站" : "终点站"}</span><strong>{next?.nameZh ?? "本线终点"}</strong>{next ? <b>→</b> : null}</div>
         </div>
         <div className="keyboard-typing-meta">
-          <strong>{current.nameZh}</strong>
+          <strong>{arrivalActive ? `✓ 已到达 · ${current.nameZh}` : current.nameZh}</strong>
           <span>
             {mode === "timed" ? `剩余 ${remainingSeconds} 秒` : `经过 ${elapsedSeconds} 秒`}
             {` · ${stationIndex + 1}/${stations.length} 站`}

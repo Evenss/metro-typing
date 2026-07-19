@@ -521,11 +521,44 @@ kbd {
 .game-node.passed { fill: var(--active-route); stroke: white; opacity: 1; }
 .game-node.current { fill: var(--green); stroke: #111; stroke-width: 3; opacity: 1; }
 .game-node.next { fill: var(--card); stroke: var(--active-route); stroke-width: 3; opacity: 1; }
+.game-node.arrived {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: station-arrived .42s cubic-bezier(.2,.8,.2,1);
+}
+.station-arrival-ring {
+  fill: none;
+  stroke: var(--active-route);
+  stroke-width: 3;
+  opacity: 0;
+  pointer-events: none;
+  transform-box: fill-box;
+  transform-origin: center;
+  vector-effect: non-scaling-stroke;
+  animation: station-arrival-ring .46s ease-out both;
+}
 .map-train { pointer-events: none; filter: drop-shadow(0 5px 6px rgba(0,0,0,.32)); transition: transform 0.18s cubic-bezier(.2,.8,.2,1); will-change: transform; }
+.train-arrival {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.train-arrival.is-arriving { animation: train-arrive .4s cubic-bezier(.2,.8,.2,1); }
 .train-halo { fill: color-mix(in srgb, var(--active-route) 28%, transparent); animation: train-pulse 1.2s ease-in-out infinite; }
 .train-body { fill: var(--ink); stroke: white; stroke-width: 2; vector-effect: non-scaling-stroke; }
 .train-window { fill: var(--green); }
 @keyframes train-pulse { 50% { opacity: 0.24; transform: scale(1.22); } }
+@keyframes station-arrived {
+  38% { transform: scale(1.75); fill: white; stroke: var(--active-route); }
+}
+@keyframes station-arrival-ring {
+  0% { opacity: .9; transform: scale(.45); }
+  100% { opacity: 0; transform: scale(3.2); }
+}
+@keyframes train-arrive {
+  0%, 100% { transform: scale(1); }
+  34% { transform: scale(1.15); }
+  68% { transform: scale(.97); }
+}
 
 .game-chrome { position: absolute; z-index: 3; left: clamp(20px, 4vw, 58px); right: clamp(20px, 4vw, 58px); top: 26px; display: flex; justify-content: space-between; align-items: center; }
 .back-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 12px 15px; border: 1px solid #c8c5bd; border-radius: 12px; background: rgba(255,255,255,.82); cursor: pointer; }
@@ -559,12 +592,14 @@ kbd {
   box-shadow: var(--shadow);
 }
 .dark .station-card { background: rgba(34,34,37,.96); border-color: #48474b; }
+.station-card.arriving:not(.shake) { animation: arrival-card .46s ease-out; }
 .station-meta { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); align-items: center; gap: 20px; padding: 8px 24px 0; color: var(--muted); font: 500 10px "DM Mono", monospace; }
 .station-meta span:first-child { color: var(--active-route); font-weight: 700; }
 .station-meta span:last-child { min-width: 0; overflow: hidden; text-align: right; white-space: nowrap; text-overflow: ellipsis; }
 .keyboard-typing-meta { display: none; }
 .station-main { display: flex; justify-content: space-between; align-items: center; gap: 24px; padding: 8px 24px 30px; }
 .station-main p { margin: 0 0 7px; color: var(--muted); font: 500 10px "DM Mono", monospace; letter-spacing: 0.14em; }
+.station-main p.arrival-kicker { color: var(--active-route); font-weight: 800; letter-spacing: .08em; }
 .station-main h2 { margin: 0; font-size: clamp(38px, 5vw, 58px); line-height: 1; letter-spacing: -0.06em; white-space: nowrap; }
 .next-station { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 2px 12px; text-align: right; }
 .next-station span { grid-column: 1; color: var(--muted); font-size: 11px; }
@@ -585,6 +620,12 @@ kbd {
 .line-strip { display: flex; align-items: center; justify-content: center; gap: 9px; padding: 7px; color: white; background: var(--active-route); font-size: 11px; font-weight: 900; line-height: 1; }
 .line-strip i { width: 9px; height: 9px; border-radius: 50%; background: white; }
 @keyframes shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+@keyframes arrival-card {
+  35% {
+    border-color: var(--active-route);
+    box-shadow: 0 18px 54px color-mix(in srgb,var(--active-route) 24%,transparent);
+  }
+}
 .station-card.shake { animation: shake .15s linear; }
 
 .results { min-height: calc(100vh - 74px); display: grid; place-items: center; padding: 60px 24px; }
@@ -722,6 +763,9 @@ footer a:hover { color: var(--accent-dark); text-decoration-color: currentColor;
   line-height: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.game[data-keyboard-open="true"] .station-card.arriving .keyboard-typing-meta strong {
+  color: var(--active-route);
 }
 .game[data-keyboard-open="true"] .keyboard-typing-meta span {
   flex: 0 0 auto;

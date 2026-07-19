@@ -315,11 +315,20 @@ test("ships complete static assets and generic multi-city runtime", async () => 
   assert.match(client, /type TypingLanguage = "en" \| "pinyin"/);
   assert.match(client, /value: "pinyin", label: "拼音"/);
   assert.match(client, /KPM/);
+  assert.match(client, /triggerArrivalFeedback/);
+  assert.match(client, /ARRIVAL_CHIME_NOTES/);
+  assert.match(client, /ARRIVAL_CHIME_STRIKE/);
+  assert.match(client, /createBufferSource/);
+  assert.match(client, /arrivalAudioSourcesRef/);
+  assert.match(client, /stopArrivalChime/);
+  assert.match(client, /✓ 已到达/);
   assert.doesNotMatch(client, /中文站名输入|使用输入法选字/);
   assert.match(css, /prefers-reduced-motion:\s*reduce/);
   assert.match(css, /\.city-menu/);
   assert.match(css, /\.typing-area\.has-hint/);
   assert.match(css, /\.typing-optional-space/);
+  assert.match(css, /\.station-arrival-ring/);
+  assert.match(css, /\.train-arrival\.is-arriving/);
   assert.match(packageJson, /"name": "metro-typing"/);
   assert.doesNotMatch(packageJson, /vinext|wrangler|drizzle|cloudflare|vite/);
   for (const cityId of cityIds) {
