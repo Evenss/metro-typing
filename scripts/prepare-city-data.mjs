@@ -3,7 +3,7 @@ import path from "node:path";
 import { validateMetroData } from "./metro-data-validation.mjs";
 import { resolveStationPinyin } from "./pinyin-normalization.mjs";
 
-const UPDATED_AT = "2026-07-18";
+const UPDATED_AT = "2026-07-20";
 
 const citySpecs = {
   shanghai: {
@@ -52,6 +52,96 @@ const citySpecs = {
       },
     ],
   },
+  guangzhou: {
+    nameZh: "广州",
+    nameEn: "Guangzhou",
+    operatorName: "广州地铁",
+    amapUrl: "https://webapi.amap.com/subway/data/4401_drw_guangzhou.json",
+    boundaryUrl:
+      "https://geo.datav.aliyun.com/areas_v3/bound/440100_full.json",
+    excludedLines: ["佛山2号线"],
+    lineNameAliases: {
+      "14号线支线（知识城线）": "14号线",
+    },
+    stationEnglishOverrides: {
+      低涌: "Di Chong",
+      东涌: "Dong Chong",
+      大涌: "Da Chong",
+    },
+    extraBoundaries: [
+      {
+        url: "https://geo.datav.aliyun.com/areas_v3/bound/440600_full.json",
+        includedDistricts: ["禅城区", "南海区", "顺德区"],
+      },
+    ],
+  },
+  wuhan: {
+    nameZh: "武汉",
+    nameEn: "Wuhan",
+    operatorName: "武汉地铁",
+    amapUrl: "https://webapi.amap.com/subway/data/4201_drw_wuhan.json",
+    boundaryUrl:
+      "https://geo.datav.aliyun.com/areas_v3/bound/420100_full.json",
+    excludedLines: [],
+    stationEnglishOverrides: {
+      沌阳大道: "Zhuan Yang Da Dao",
+    },
+    extraBoundaries: [
+      {
+        url: "https://geo.datav.aliyun.com/areas_v3/bound/420700_full.json",
+        includedDistricts: ["华容区"],
+      },
+    ],
+  },
+  nanjing: {
+    nameZh: "南京",
+    nameEn: "Nanjing",
+    operatorName: "南京地铁",
+    amapUrl: "https://webapi.amap.com/subway/data/3201_drw_nanjing.json",
+    boundaryUrl:
+      "https://geo.datav.aliyun.com/areas_v3/bound/320100_full.json",
+    excludedLines: [],
+    extraBoundaries: [
+      {
+        url: "https://geo.datav.aliyun.com/areas_v3/bound/321100_full.json",
+        includedDistricts: ["句容市"],
+      },
+      {
+        url: "https://geo.datav.aliyun.com/areas_v3/bound/340500_full.json",
+        includedDistricts: ["花山区", "雨山区", "当涂县"],
+      },
+    ],
+  },
+  chongqing: {
+    nameZh: "重庆",
+    nameEn: "Chongqing",
+    operatorName: "重庆轨道交通",
+    amapUrl: "https://webapi.amap.com/subway/data/5000_drw_chongqing.json",
+    boundaryUrl:
+      "https://geo.datav.aliyun.com/areas_v3/bound/500000_full.json",
+    excludedLines: [],
+    lineNameAliases: {
+      "轨道交通3号线（空港线）": "3号线",
+    },
+  },
+  suzhou: {
+    nameZh: "苏州",
+    nameEn: "Suzhou",
+    operatorName: "苏州地铁",
+    amapUrl: "https://webapi.amap.com/subway/data/3205_drw_suzhou.json",
+    boundaryUrl:
+      "https://geo.datav.aliyun.com/areas_v3/bound/320500_full.json",
+    excludedLines: [],
+    stationAliases: {
+      "唯亭（花桥）": "唯亭",
+      "唯亭（苏州新区火车站）": "唯亭",
+      倪浜: "倪浜·阳澄数谷",
+    },
+    stationEnglishOverrides: {
+      唯亭: "Wei Ting",
+      "倪浜·阳澄数谷": "Ni Bang Yang Cheng Shu Gu",
+    },
+  },
 };
 
 function normalizeName(value) {
@@ -66,11 +156,11 @@ function stationId(cityId, nameZh) {
   return `${cityId}:${normalizeName(nameZh)}`;
 }
 
-function normalizeEnglishName(station) {
+function normalizeEnglishName(station, fallbackPinyin) {
   const official = station.en?.normalize("NFKC").trim();
-  if (official) return official;
+  if (official && !official.includes("?")) return official;
 
-  const pinyin = station.sp?.normalize("NFKC").trim();
+  const pinyin = fallbackPinyin || station.sp?.normalize("NFKC").trim();
   if (!pinyin) return normalizeName(station.n);
   return pinyin
     .replace(/([a-z])([A-Z])/g, "$1 $2")
@@ -80,6 +170,8 @@ function normalizeEnglishName(station) {
 }
 
 function lineCode(lineName) {
+  const letteredLine = lineName.match(/^([A-Z]+\d+)/i)?.[1];
+  if (letteredLine) return letteredLine.toUpperCase();
   const numberedLines = [...lineName.matchAll(/(\d+)号线/g)].map(
     (match) => match[1],
   );
@@ -87,8 +179,6 @@ function lineCode(lineName) {
     const code = numberedLines.join("/");
     return lineName.includes("支线") ? `${code}支` : code;
   }
-  const letteredLine = lineName.match(/^([A-Z]+\d+)/i)?.[1];
-  if (letteredLine) return letteredLine.toUpperCase();
   return lineName
     .replace(/地铁/g, "")
     .replace(/号线$/, "")
@@ -97,11 +187,37 @@ function lineCode(lineName) {
 }
 
 function lineId(cityId, lineName) {
-  const code = lineCode(lineName)
+  const firstNumberedLine = lineName.match(/\d+号线/);
+  const networkPrefix = firstNumberedLine && !/^([A-Z]+\d+)/i.test(lineName)
+    ? lineName
+        .slice(0, firstNumberedLine.index)
+        .replace(/地铁/g, "")
+        .trim()
+    : "";
+  const code = `${networkPrefix ? `${networkPrefix}-` : ""}${lineCode(lineName)}`
     .toLowerCase()
     .replace(/\s+/g, "-")
     .replace(/[^a-z0-9\u3400-\u9fff-]/g, "");
   return `${cityId}-${code || "line"}`;
+}
+
+function reserveLineId(cityId, lineName, usedIds) {
+  const baseId = lineId(cityId, lineName);
+  let id = baseId;
+  if (usedIds.has(id)) {
+    const qualifier = lineName
+      .replace(/\d+号线/g, "")
+      .replace(/地铁|支线|线/g, "")
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9\u3400-\u9fff-]/g, "");
+    id = `${baseId}-${qualifier || "branch"}`;
+  }
+  for (let suffix = 2; usedIds.has(id); suffix += 1) {
+    id = `${baseId}-${suffix}`;
+  }
+  usedIds.add(id);
+  return id;
 }
 
 function normalizeColor(value) {
@@ -177,15 +293,19 @@ async function getJson(url) {
   return response.json();
 }
 
-function makeStation(cityId, rawStation) {
-  const nameZh = normalizeName(rawStation.n);
+function makeStation(cityId, spec, rawStation) {
+  const rawNameZh = normalizeName(rawStation.n);
+  const nameZh = spec.stationAliases?.[rawNameZh] ?? rawNameZh;
   const [lon, lat] = String(rawStation.sl).split(",").map(Number);
   if (!nameZh || !Number.isFinite(lon) || !Number.isFinite(lat)) return null;
+  const namePinyin = resolveStationPinyin(cityId, nameZh, rawStation.sp);
   return {
     id: stationId(cityId, nameZh),
     nameZh,
-    nameEn: normalizeEnglishName(rawStation),
-    namePinyin: resolveStationPinyin(cityId, nameZh, rawStation.sp),
+    nameEn:
+      spec.stationEnglishOverrides?.[nameZh] ??
+      normalizeEnglishName(rawStation, namePinyin),
+    namePinyin,
     lon,
     lat,
   };
@@ -194,26 +314,36 @@ function makeStation(cityId, rawStation) {
 function prepareNetwork(cityId, spec, amap) {
   const groupedLines = new Map();
   for (const rawLine of amap.l ?? []) {
-    const name = normalizeName(rawLine.ln || rawLine.kn || "");
+    const rawName = normalizeName(rawLine.ln || rawLine.kn || "");
+    const name = spec.lineNameAliases?.[rawName] ?? rawName;
     if (!name || rawLine.su === "0" || spec.excludedLines.includes(name)) continue;
     const rawStations = (rawLine.st ?? []).filter(
       (station) => !station.su || station.su === "1",
     );
     if (rawStations.length < 2) continue;
     const group = groupedLines.get(name) ?? [];
-    group.push({ ...rawLine, st: rawStations });
+    group.push({
+      ...rawLine,
+      st: rawStations,
+      canonicalName: rawName === name,
+    });
     groupedLines.set(name, group);
   }
 
   const stations = {};
   const lines = [];
+  const usedLineIds = new Set();
 
   for (const [name, rawLines] of groupedLines) {
+    const id = reserveLineId(cityId, name, usedLineIds);
+    const orderedRawLines = [...rawLines].sort(
+      (left, right) => Number(right.canonicalName) - Number(left.canonicalName),
+    );
     const paths = [];
 
-    for (const rawLine of rawLines) {
+    for (const rawLine of orderedRawLines) {
       const pathStations = rawLine.st
-        .map((rawStation) => makeStation(cityId, rawStation))
+        .map((rawStation) => makeStation(cityId, spec, rawStation))
         .filter(Boolean);
       for (const station of pathStations) {
         const current = stations[station.id];
@@ -232,7 +362,7 @@ function prepareNetwork(cityId, spec, amap) {
       }
       if (runStationIds.length < 2) continue;
       paths.push({
-        id: String(rawLine.ls || `${lineId(cityId, name)}-${paths.length + 1}`),
+        id: String(rawLine.ls || `${id}-${paths.length + 1}`),
         label: normalizeName(rawLine.la || ""),
         stationIds: mapStationIds,
         runStationIds,
@@ -241,7 +371,6 @@ function prepareNetwork(cityId, spec, amap) {
     }
 
     if (!paths.length) continue;
-    const id = lineId(cityId, name);
     const isBranched = paths.length > 1;
     const runs = paths.map((metroPath, index) => {
       const first = stations[metroPath.runStationIds[0]];
@@ -279,7 +408,7 @@ function prepareNetwork(cityId, spec, amap) {
       lineId: lineCode(name),
       lineName: name,
       operatorName: spec.operatorOverrides?.[name] ?? spec.operatorName,
-      color: normalizeColor(rawLines[0].cl),
+      color: normalizeColor(orderedRawLines[0].cl),
       stationIds: unique(paths.flatMap((metroPath) => metroPath.stationIds)),
       mapPaths: paths.map((metroPath) => ({
         id: metroPath.id,

@@ -39,6 +39,7 @@ import {
   ARRIVAL_CHIME_PARTIALS,
   ARRIVAL_CHIME_STRIKE,
   ARRIVAL_FEEDBACK_DURATION_MS,
+  COMPLETION_CHIME_NOTES,
   shouldPlayArrivalChime,
 } from "../lib/metro/arrival-feedback";
 import {
@@ -47,10 +48,12 @@ import {
   getTypingTarget,
   normalizeTypingCharacter,
 } from "../lib/metro/typing";
+import { TYPING_ERROR_TONE } from "../lib/metro/typing-feedback";
 
-type Screen = "home" | "game" | "result";
+type Screen = "home" | "game" | "completing" | "result";
 type GameMode = "timed" | "line";
 type TypingLanguage = "en" | "pinyin";
+type CompletionReason = "timed" | "line";
 
 type MapModel = {
   districtPaths: Array<{ name: string; path: string }>;
@@ -81,6 +84,13 @@ type ArrivalFeedback = {
   stationName: string;
 };
 
+type ChimeNote = {
+  frequency: number;
+  delay: number;
+  duration: number;
+  gain: number;
+};
+
 type ResolvedRun = {
   id: string;
   nameZh: string;
@@ -96,6 +106,7 @@ const MAP_WIDTH = 1000;
 const MAP_HEIGHT = 700;
 const FULL_VIEWBOX = `0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`;
 const GAME_DURATION = 30_000;
+const LINE_COMPLETION_DURATION_MS = 1_150;
 const DEFAULT_OVERVIEW_METRO_EXTENT: MapExtent = {
   left: 450,
   right: 950,
@@ -279,6 +290,26 @@ function getRouteViewBox(
 
 function formatViewBox(viewBox: ViewBox) {
   return viewBox.map((value) => value.toFixed(3)).join(" ");
+}
+
+function getReadableTextColor(background: string) {
+  const hex = background.trim().replace(/^#/, "");
+  const expanded = hex.length === 3
+    ? hex.split("").map((character) => character.repeat(2)).join("")
+    : hex;
+  if (!/^[0-9a-f]{6}$/i.test(expanded)) return "#ffffff";
+
+  const channels = [0, 2, 4].map((offset) => {
+    const value = Number.parseInt(expanded.slice(offset, offset + 2), 16) / 255;
+    return value <= 0.04045
+      ? value / 12.92
+      : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  const luminance =
+    channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  const darkContrast = (luminance + 0.05) / 0.05;
+  const lightContrast = 1.05 / (luminance + 0.05);
+  return darkContrast >= lightContrast ? "#161619" : "#ffffff";
 }
 
 function viewBoxesEqual(first: ViewBox, second: ViewBox) {
@@ -629,6 +660,8 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
   const [data, setData] = useState<MetroData | null>(null);
   const [loadError, setLoadError] = useState("");
   const [screen, setScreen] = useState<Screen>("home");
+  const [completionReason, setCompletionReason] =
+    useState<CompletionReason | null>(null);
   const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
   const [runIndex, setRunIndex] = useState(0);
   const [directionIndex, setDirectionIndex] = useState(0);
@@ -665,6 +698,8 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
   const arrivalStrikeBufferRef = useRef<AudioBuffer | null>(null);
   const arrivalAudioGenerationRef = useRef(0);
   const lastArrivalChimeAtRef = useRef(Number.NEGATIVE_INFINITY);
+  const shakeFrameRef = useRef<number | null>(null);
+  const shakeTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -747,6 +782,18 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
     }
   }, []);
 
+  const clearShakeFeedback = useCallback((resetState = true) => {
+    if (shakeFrameRef.current !== null) {
+      window.cancelAnimationFrame(shakeFrameRef.current);
+      shakeFrameRef.current = null;
+    }
+    if (shakeTimeoutRef.current !== null) {
+      window.clearTimeout(shakeTimeoutRef.current);
+      shakeTimeoutRef.current = null;
+    }
+    if (resetState) setShake(false);
+  }, []);
+
   const clearArrivalFeedback = useCallback(() => {
     if (arrivalTimeoutRef.current !== null) {
       window.clearTimeout(arrivalTimeoutRef.current);
@@ -797,118 +844,181 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
     }
   }, [getArrivalAudioContext]);
 
+  const playChime = useCallback(
+    (notes: readonly ChimeNote[], throttle: boolean) => {
+      const context = getArrivalAudioContext();
+      if (!context || context.state === "closed") return;
+      const generation = arrivalAudioGenerationRef.current;
+
+      const scheduleChime = () => {
+        if (
+          generation !== arrivalAudioGenerationRef.current
+          || context.state === "closed"
+        ) {
+          return;
+        }
+        if (throttle) {
+          const playedAt = performance.now();
+          if (!shouldPlayArrivalChime(lastArrivalChimeAtRef.current, playedAt)) {
+            return;
+          }
+          lastArrivalChimeAtRef.current = playedAt;
+        }
+        const startAt = context.currentTime + 0.008;
+        let strikeBuffer = arrivalStrikeBufferRef.current;
+        if (!strikeBuffer || strikeBuffer.sampleRate !== context.sampleRate) {
+          const frameCount = Math.max(
+            1,
+            Math.ceil(context.sampleRate * ARRIVAL_CHIME_STRIKE.duration),
+          );
+          strikeBuffer = context.createBuffer(1, frameCount, context.sampleRate);
+          const strikeSamples = strikeBuffer.getChannelData(0);
+          for (let index = 0; index < strikeSamples.length; index += 1) {
+            strikeSamples[index] =
+              (Math.random() * 2 - 1) * (1 - index / strikeSamples.length);
+          }
+          arrivalStrikeBufferRef.current = strikeBuffer;
+        }
+
+        for (const note of notes) {
+          const noteStart = startAt + note.delay;
+          for (const partial of ARRIVAL_CHIME_PARTIALS) {
+            const partialEnd = noteStart + note.duration * partial.decay;
+            const oscillator = context.createOscillator();
+            const gain = context.createGain();
+            oscillator.type = "sine";
+            oscillator.frequency.setValueAtTime(
+              note.frequency * partial.ratio,
+              noteStart,
+            );
+            oscillator.detune.setValueAtTime(partial.detune, noteStart);
+            gain.gain.setValueAtTime(0.0001, noteStart);
+            gain.gain.exponentialRampToValueAtTime(
+              note.gain * partial.level,
+              noteStart + partial.attack,
+            );
+            gain.gain.exponentialRampToValueAtTime(0.0001, partialEnd);
+            oscillator.connect(gain);
+            gain.connect(context.destination);
+            arrivalAudioSourcesRef.current.add(oscillator);
+            oscillator.start(noteStart);
+            oscillator.stop(partialEnd + 0.01);
+            oscillator.addEventListener("ended", () => {
+              arrivalAudioSourcesRef.current.delete(oscillator);
+              oscillator.disconnect();
+              gain.disconnect();
+            }, { once: true });
+          }
+
+          const strikeEnd = noteStart + ARRIVAL_CHIME_STRIKE.duration;
+          const strikeSource = context.createBufferSource();
+          const highpass = context.createBiquadFilter();
+          const bandpass = context.createBiquadFilter();
+          const strikeGain = context.createGain();
+          strikeSource.buffer = strikeBuffer;
+          highpass.type = "highpass";
+          highpass.frequency.setValueAtTime(
+            ARRIVAL_CHIME_STRIKE.highpass,
+            noteStart,
+          );
+          bandpass.type = "bandpass";
+          bandpass.frequency.setValueAtTime(
+            ARRIVAL_CHIME_STRIKE.bandpass,
+            noteStart,
+          );
+          bandpass.Q.setValueAtTime(ARRIVAL_CHIME_STRIKE.q, noteStart);
+          strikeGain.gain.setValueAtTime(0.0001, noteStart);
+          strikeGain.gain.exponentialRampToValueAtTime(
+            ARRIVAL_CHIME_STRIKE.gain,
+            noteStart + ARRIVAL_CHIME_STRIKE.attack,
+          );
+          strikeGain.gain.exponentialRampToValueAtTime(0.0001, strikeEnd);
+          strikeSource.connect(highpass);
+          highpass.connect(bandpass);
+          bandpass.connect(strikeGain);
+          strikeGain.connect(context.destination);
+          arrivalAudioSourcesRef.current.add(strikeSource);
+          strikeSource.start(noteStart);
+          strikeSource.stop(strikeEnd + 0.01);
+          strikeSource.addEventListener("ended", () => {
+            arrivalAudioSourcesRef.current.delete(strikeSource);
+            strikeSource.disconnect();
+            highpass.disconnect();
+            bandpass.disconnect();
+            strikeGain.disconnect();
+          }, { once: true });
+        }
+      };
+
+      if (context.state !== "running") {
+        void context.resume().then(scheduleChime).catch(() => undefined);
+        return;
+      }
+      scheduleChime();
+    },
+    [getArrivalAudioContext],
+  );
+
   const playArrivalChime = useCallback(() => {
+    playChime(ARRIVAL_CHIME_NOTES, true);
+  }, [playChime]);
+
+  const playCompletionChime = useCallback(() => {
+    playChime(COMPLETION_CHIME_NOTES, false);
+  }, [playChime]);
+
+  const playTypingErrorSound = useCallback(() => {
     const context = getArrivalAudioContext();
     if (!context || context.state === "closed") return;
     const generation = arrivalAudioGenerationRef.current;
 
-    const scheduleChime = () => {
+    const scheduleErrorTone = () => {
       if (
         generation !== arrivalAudioGenerationRef.current
         || context.state === "closed"
       ) {
         return;
       }
-      const playedAt = performance.now();
-      if (!shouldPlayArrivalChime(lastArrivalChimeAtRef.current, playedAt)) {
-        return;
-      }
-      lastArrivalChimeAtRef.current = playedAt;
-      const startAt = context.currentTime + 0.008;
-      let strikeBuffer = arrivalStrikeBufferRef.current;
-      if (!strikeBuffer || strikeBuffer.sampleRate !== context.sampleRate) {
-        const frameCount = Math.max(
-          1,
-          Math.ceil(context.sampleRate * ARRIVAL_CHIME_STRIKE.duration),
-        );
-        strikeBuffer = context.createBuffer(1, frameCount, context.sampleRate);
-        const strikeSamples = strikeBuffer.getChannelData(0);
-        for (let index = 0; index < strikeSamples.length; index += 1) {
-          strikeSamples[index] =
-            (Math.random() * 2 - 1) * (1 - index / strikeSamples.length);
-        }
-        arrivalStrikeBufferRef.current = strikeBuffer;
-      }
 
-      for (const note of ARRIVAL_CHIME_NOTES) {
-        const noteStart = startAt + note.delay;
-        for (const partial of ARRIVAL_CHIME_PARTIALS) {
-          const partialEnd = noteStart + note.duration * partial.decay;
-          const oscillator = context.createOscillator();
-          const gain = context.createGain();
-          oscillator.type = "sine";
-          oscillator.frequency.setValueAtTime(
-            note.frequency * partial.ratio,
-            noteStart,
-          );
-          oscillator.detune.setValueAtTime(partial.detune, noteStart);
-          gain.gain.setValueAtTime(0.0001, noteStart);
-          gain.gain.exponentialRampToValueAtTime(
-            note.gain * partial.level,
-            noteStart + partial.attack,
-          );
-          gain.gain.exponentialRampToValueAtTime(0.0001, partialEnd);
-          oscillator.connect(gain);
-          gain.connect(context.destination);
-          arrivalAudioSourcesRef.current.add(oscillator);
-          oscillator.start(noteStart);
-          oscillator.stop(partialEnd + 0.01);
-          oscillator.addEventListener("ended", () => {
-            arrivalAudioSourcesRef.current.delete(oscillator);
-            oscillator.disconnect();
-            gain.disconnect();
-          }, { once: true });
-        }
-
-        const strikeEnd = noteStart + ARRIVAL_CHIME_STRIKE.duration;
-        const strikeSource = context.createBufferSource();
-        const highpass = context.createBiquadFilter();
-        const bandpass = context.createBiquadFilter();
-        const strikeGain = context.createGain();
-        strikeSource.buffer = strikeBuffer;
-        highpass.type = "highpass";
-        highpass.frequency.setValueAtTime(
-          ARRIVAL_CHIME_STRIKE.highpass,
-          noteStart,
-        );
-        bandpass.type = "bandpass";
-        bandpass.frequency.setValueAtTime(
-          ARRIVAL_CHIME_STRIKE.bandpass,
-          noteStart,
-        );
-        bandpass.Q.setValueAtTime(ARRIVAL_CHIME_STRIKE.q, noteStart);
-        strikeGain.gain.setValueAtTime(0.0001, noteStart);
-        strikeGain.gain.exponentialRampToValueAtTime(
-          ARRIVAL_CHIME_STRIKE.gain,
-          noteStart + ARRIVAL_CHIME_STRIKE.attack,
-        );
-        strikeGain.gain.exponentialRampToValueAtTime(0.0001, strikeEnd);
-        strikeSource.connect(highpass);
-        highpass.connect(bandpass);
-        bandpass.connect(strikeGain);
-        strikeGain.connect(context.destination);
-        arrivalAudioSourcesRef.current.add(strikeSource);
-        strikeSource.start(noteStart);
-        strikeSource.stop(strikeEnd + 0.01);
-        strikeSource.addEventListener("ended", () => {
-          arrivalAudioSourcesRef.current.delete(strikeSource);
-          strikeSource.disconnect();
-          highpass.disconnect();
-          bandpass.disconnect();
-          strikeGain.disconnect();
-        }, { once: true });
-      }
+      const startAt = context.currentTime;
+      const endAt = startAt + TYPING_ERROR_TONE.duration;
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = TYPING_ERROR_TONE.type as OscillatorType;
+      oscillator.frequency.setValueAtTime(
+        TYPING_ERROR_TONE.frequency,
+        startAt,
+      );
+      gain.gain.setValueAtTime(TYPING_ERROR_TONE.floorGain, startAt);
+      gain.gain.exponentialRampToValueAtTime(
+        TYPING_ERROR_TONE.gain,
+        startAt + TYPING_ERROR_TONE.attack,
+      );
+      gain.gain.exponentialRampToValueAtTime(
+        TYPING_ERROR_TONE.floorGain,
+        endAt,
+      );
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      arrivalAudioSourcesRef.current.add(oscillator);
+      oscillator.start(startAt);
+      oscillator.stop(endAt + TYPING_ERROR_TONE.stopTail);
+      oscillator.addEventListener("ended", () => {
+        arrivalAudioSourcesRef.current.delete(oscillator);
+        oscillator.disconnect();
+        gain.disconnect();
+      }, { once: true });
     };
 
     if (context.state !== "running") {
-      void context.resume().then(scheduleChime).catch(() => undefined);
+      void context.resume().then(scheduleErrorTone).catch(() => undefined);
       return;
     }
-    scheduleChime();
+    scheduleErrorTone();
   }, [getArrivalAudioContext]);
 
   const triggerArrivalFeedback = useCallback(
-    (station: Station) => {
+    (station: Station, withChime = true) => {
       const sequence = arrivalSequenceRef.current + 1;
       arrivalSequenceRef.current = sequence;
       if (arrivalTimeoutRef.current !== null) {
@@ -919,7 +1029,7 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
         stationId: station.id,
         stationName: station.nameZh,
       });
-      playArrivalChime();
+      if (withChime) playArrivalChime();
       arrivalTimeoutRef.current = window.setTimeout(() => {
         arrivalTimeoutRef.current = null;
         setArrivalFeedback((currentFeedback) =>
@@ -934,6 +1044,7 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
     if (arrivalTimeoutRef.current !== null) {
       window.clearTimeout(arrivalTimeoutRef.current);
     }
+    clearShakeFeedback(false);
     stopArrivalChime();
     const context = arrivalAudioContextRef.current;
     arrivalAudioContextRef.current = null;
@@ -941,17 +1052,43 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
     if (context && context.state !== "closed") {
       void context.close().catch(() => undefined);
     }
-  }, [stopArrivalChime]);
+  }, [clearShakeFeedback, stopArrivalChime]);
 
-  const finishGame = useCallback((finalElapsed?: number) => {
-    if (!playingRef.current) return;
-    playingRef.current = false;
-    const elapsed =
-      finalElapsed ?? Math.max(performance.now() - startedAtRef.current, 0);
-    setElapsedMs(Math.min(elapsed, modeRef.current === "timed" ? GAME_DURATION : elapsed));
-    resetTypingInput();
-    setScreen("result");
-  }, [resetTypingInput]);
+  useEffect(() => {
+    if (screen !== "completing") return undefined;
+    const timer = window.setTimeout(
+      () => setScreen((current) =>
+        current === "completing" ? "result" : current,
+      ),
+      LINE_COMPLETION_DURATION_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [screen]);
+
+  const finishGame = useCallback(
+    (reason: CompletionReason, finalElapsed?: number) => {
+      if (!playingRef.current) return;
+      playingRef.current = false;
+      const elapsed =
+        finalElapsed ?? Math.max(performance.now() - startedAtRef.current, 0);
+      setElapsedMs(
+        Math.min(
+          elapsed,
+          modeRef.current === "timed" ? GAME_DURATION : elapsed,
+        ),
+      );
+      clearShakeFeedback();
+      resetTypingInput();
+      setCompletionReason(reason);
+      const reducedMotion = window.matchMedia(
+        "(prefers-reduced-motion: reduce)",
+      ).matches;
+      setScreen(
+        reason === "line" && !reducedMotion ? "completing" : "result",
+      );
+    },
+    [clearShakeFeedback, resetTypingInput],
+  );
 
   const handleCharacter = useCallback(
     (character: string) => {
@@ -971,14 +1108,13 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
         const nextTypedIndex = typedIndexRef.current + 1;
         if (nextTypedIndex >= currentTarget.length) {
           setCompletedStations((value) => value + 1);
-          if (
-            modeRef.current === "line" &&
-            stationIndexRef.current >= stations.length - 1
-          ) {
+          if (stationIndexRef.current >= stations.length - 1) {
             typedIndexRef.current = nextTypedIndex;
             setTypedIndex(nextTypedIndex);
-            triggerArrivalFeedback(current);
-            finishGame(performance.now() - startedAtRef.current);
+            triggerArrivalFeedback(current, false);
+            stopArrivalChime();
+            playCompletionChime();
+            finishGame("line", performance.now() - startedAtRef.current);
             return;
           }
           const nextStationIndex = (stationIndexRef.current + 1) % stations.length;
@@ -993,12 +1129,26 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
         }
       } else {
         setWrongChars((value) => value + 1);
-        setShake(false);
-        requestAnimationFrame(() => setShake(true));
-        window.setTimeout(() => setShake(false), 170);
+        playTypingErrorSound();
+        clearShakeFeedback();
+        shakeFrameRef.current = window.requestAnimationFrame(() => {
+          shakeFrameRef.current = null;
+          setShake(true);
+          shakeTimeoutRef.current = window.setTimeout(() => {
+            shakeTimeoutRef.current = null;
+            setShake(false);
+          }, 170);
+        });
       }
     },
-    [finishGame, triggerArrivalFeedback],
+    [
+      clearShakeFeedback,
+      finishGame,
+      playCompletionChime,
+      playTypingErrorSound,
+      stopArrivalChime,
+      triggerArrivalFeedback,
+    ],
   );
 
   const consumeInput = useCallback(
@@ -1021,7 +1171,7 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
         modeRef.current === "timed" ? Math.min(elapsed, GAME_DURATION) : elapsed,
       );
       if (modeRef.current === "timed" && elapsed >= GAME_DURATION) {
-        finishGame(GAME_DURATION);
+        finishGame("timed", GAME_DURATION);
       }
     }, 120);
     return () => window.clearInterval(timer);
@@ -1031,11 +1181,13 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.isComposing || event.keyCode === 229) return;
       if (event.key === "Escape") {
-        if (screen === "game") {
+        if (screen === "game" || screen === "completing") {
           playingRef.current = false;
           clearArrivalFeedback();
+          clearShakeFeedback();
           stopArrivalChime();
           resetTypingInput();
+          setCompletionReason(null);
           setScreen("home");
           setSelectedLineId(null);
         } else if (screen === "home" && selectedLineId) {
@@ -1061,7 +1213,15 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [clearArrivalFeedback, handleCharacter, resetTypingInput, screen, selectedLineId, stopArrivalChime]);
+  }, [
+    clearArrivalFeedback,
+    clearShakeFeedback,
+    handleCharacter,
+    resetTypingInput,
+    screen,
+    selectedLineId,
+    stopArrivalChime,
+  ]);
 
   function selectLine(id: string) {
     setSelectedLineId(id);
@@ -1073,8 +1233,10 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
   function resetHome(clearLine = true) {
     playingRef.current = false;
     clearArrivalFeedback();
+    clearShakeFeedback();
     stopArrivalChime();
     resetTypingInput();
+    setCompletionReason(null);
     setScreen("home");
     if (clearLine) setSelectedLineId(null);
     setRunIndex(0);
@@ -1085,6 +1247,7 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
     if (!selectedLine || !selectedDirection?.stations.length) return;
     stopArrivalChime();
     clearArrivalFeedback();
+    clearShakeFeedback();
     arrivalSequenceRef.current = 0;
     lastArrivalChimeAtRef.current = Number.NEGATIVE_INFINITY;
     prepareArrivalAudio();
@@ -1104,6 +1267,7 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
     setWrongChars(0);
     setCompletedStations(0);
     setElapsedMs(0);
+    setCompletionReason(null);
     setScreen("game");
     window.setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 0);
   }
@@ -1124,6 +1288,8 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
     consumeInput(event.currentTarget);
   }
 
+  const journeyVisible = screen === "game" || screen === "completing";
+
   return (
     <div className={`metro-app${dark ? " dark" : ""}`}>
       <input
@@ -1136,6 +1302,8 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
         autoComplete="off"
         autoCorrect="off"
         spellCheck={false}
+        disabled={screen !== "game"}
+        tabIndex={screen === "game" ? 0 : -1}
         aria-label={typingLanguage === "pinyin" ? "拼音站名输入" : "英文站名输入"}
         aria-describedby={screen === "game" ? "typing-instruction" : undefined}
         onInput={handleInput}
@@ -1154,7 +1322,7 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
         }}
       />
 
-      {screen !== "game" ? (
+      {!journeyVisible ? (
         <Header
           city={city}
           dark={dark}
@@ -1190,7 +1358,7 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
             onStart={startGame}
           />
         ) : null}
-        {data && mapModel && screen === "game" && selectedLine && currentStation ? (
+        {data && mapModel && journeyVisible && selectedLine && currentStation ? (
           <GameScreen
             city={city}
             data={data}
@@ -1208,10 +1376,16 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
             speed={speed}
             accuracy={accuracy}
             mode={mode}
+            completing={screen === "completing"}
+            isLoop={selectedRun?.kind === "loop"}
             shake={shake}
             arrivalFeedback={arrivalFeedback}
             onBack={() => resetHome(true)}
-            onFocusTyping={() => inputRef.current?.focus({ preventScroll: true })}
+            onFocusTyping={() => {
+              if (screen === "game") {
+                inputRef.current?.focus({ preventScroll: true });
+              }
+            }}
           />
         ) : null}
         {screen === "result" ? (
@@ -1221,6 +1395,10 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
             speed={speed}
             speedUnit={typingLanguage === "pinyin" ? "KPM" : "WPM"}
             accuracy={accuracy}
+            completionReason={completionReason ?? "timed"}
+            lineName={selectedLine?.lineName ?? ""}
+            stations={gameStations}
+            isLoop={selectedRun?.kind === "loop"}
             routeColor={selectedLine?.color ?? "#f08c4a"}
             onBack={() => resetHome(true)}
             onRetry={startGame}
@@ -1228,7 +1406,7 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
         ) : null}
       </main>
 
-      {screen !== "game" ? <Footer city={city} data={data} /> : null}
+      {!journeyVisible ? <Footer city={city} data={data} /> : null}
     </div>
   );
 }
@@ -1779,6 +1957,8 @@ function GameScreen({
   speed,
   accuracy,
   mode,
+  completing,
+  isLoop,
   shake,
   arrivalFeedback,
   onBack,
@@ -1800,6 +1980,8 @@ function GameScreen({
   speed: number;
   accuracy: number;
   mode: GameMode;
+  completing: boolean;
+  isLoop: boolean;
   shake: boolean;
   arrivalFeedback: ArrivalFeedback | null;
   onBack: () => void;
@@ -1842,6 +2024,21 @@ function GameScreen({
         .filter((point): point is Point => Boolean(point)),
     [mapModel, stations],
   );
+  const completionJourneyPoints = useMemo(
+    () => isLoop && journeyPoints.length > 2
+      ? [...journeyPoints, journeyPoints[0]]
+      : journeyPoints,
+    [isLoop, journeyPoints],
+  );
+  const completionAnchor = useMemo<Point>(() => {
+    if (!journeyPoints.length) return currentPoint;
+    const xs = journeyPoints.map(([x]) => x);
+    const ys = journeyPoints.map(([, y]) => y);
+    return [
+      (Math.min(...xs) + Math.max(...xs)) / 2,
+      (Math.min(...ys) + Math.max(...ys)) / 2,
+    ];
+  }, [currentPoint, journeyPoints]);
   const progressPoints = journeyPoints.slice(0, stationIndex + 1);
   if (trainProgress > 0) progressPoints.push(trainPoint);
   const cameraFocusPoints = useMemo(
@@ -1856,6 +2053,19 @@ function GameScreen({
     [mapModel, stationIndex, stations],
   );
   const cameraTargetViewBox = useMemo(() => {
+    if (completing) {
+      return getTrackingViewBox(
+        completionJourneyPoints,
+        cameraLayout,
+        cameraLayout.safeRect,
+        {
+          anchorPoint: completionAnchor,
+          minimumWidth: cameraLayout.width <= 620 ? 300 : 420,
+          padding: cameraLayout.width <= 620 ? 24 : 42,
+          forwardBias: 0,
+        },
+      ) as ViewBox;
+    }
     const minimumWidth =
       cameraLayout.width <= 620
         ? 260
@@ -1886,15 +2096,16 @@ function GameScreen({
     return contextTarget[2] <= contextSoftMaximum
       ? contextTarget
       : segmentTarget;
-  }, [cameraFocusPoints, cameraLayout, currentPoint, next, nextPoint]);
+  }, [cameraFocusPoints, cameraLayout, completing, completionAnchor, completionJourneyPoints, currentPoint, next, nextPoint]);
   const { viewBox: cameraViewBox, animating: cameraAnimating } =
-    useAnimatedViewBox(cameraTargetViewBox);
+    useAnimatedViewBox(cameraTargetViewBox, completing ? 620 : 340);
   const mapPixelsPerUnit =
     cameraLayout.width / Math.max(cameraViewBox[2], 1);
   const trainGlyphScale = Math.min(
     Math.max(36 / Math.max(20 * mapPixelsPerUnit, 1), 0.2),
     4,
   );
+  const routeOrigin = stations[0];
   const routeEnd = stations.at(-1);
   const passedStationIds = new Set(
     stations.slice(0, stationIndex).map((station) => station.id),
@@ -1910,14 +2121,17 @@ function GameScreen({
       data-keyboard-open={cameraLayout.keyboardOpen ? "true" : "false"}
       data-keyboard-tight={cameraLayout.keyboardTight ? "true" : "false"}
       data-arrival={arrivalActive ? "true" : "false"}
+      data-completing={completing ? "true" : "false"}
       style={{
         "--active-route": line.color,
+        "--active-route-ink": getReadableTextColor(line.color),
         "--game-keyboard-inset": `${cameraLayout.keyboardInset}px`,
       } as CSSProperties}
     >
       <p className="screen-reader-status" aria-live="polite" aria-atomic="true">
-        {arrivalActive ? `已到达 ${arrivalFeedback.stationName}。` : ""}
-        当前车站 {current.nameZh}，请输入 {targetLabel}
+        {completing
+          ? `${isLoop ? "环线全站完成" : `已抵达终点站 ${current.nameZh}`}，${line.lineName}全线完成，共 ${stations.length} 站。`
+          : `${arrivalActive ? `已到达 ${arrivalFeedback.stationName}。` : ""}当前车站 ${current.nameZh}，请输入 ${targetLabel}`}
       </p>
       <svg
         className="game-map"
@@ -1935,20 +2149,42 @@ function GameScreen({
         {journeyPoints.length > 1 ? <polyline className="game-casing" points={pointsToString(journeyPoints)} /> : null}
         {journeyPoints.length > 1 ? <polyline className="game-line selected" points={pointsToString(journeyPoints)} stroke={line.color} /> : null}
         {progressPoints.length > 1 ? <polyline className="game-progress" points={pointsToString(progressPoints)} stroke={line.color} /> : null}
-        {stations.map((station) => {
+        {completing && completionJourneyPoints.length > 1 ? (
+          <polyline
+            className="game-completion-line"
+            pathLength="1"
+            points={pointsToString(completionJourneyPoints)}
+            stroke={line.color}
+          />
+        ) : null}
+        {stations.map((station, index) => {
           const point = mapModel.stationPoints.get(station.id);
           if (!point) return null;
-          const state = station.id === current.id
-            ? " current"
-            : station.id === next?.id
-              ? " next"
-              : passedStationIds.has(station.id)
-                ? " passed"
-                : "";
+          const state = completing
+            ? " passed completed"
+            : station.id === current.id
+              ? " current"
+              : station.id === next?.id
+                ? " next"
+                : passedStationIds.has(station.id)
+                  ? " passed"
+                  : "";
           const arrivalState = station.id === arrivalFeedback?.stationId
             ? " arrived"
             : "";
-          return <circle key={station.id} data-station-id={station.id} className={`game-node${state}${arrivalState}`} cx={point[0]} cy={point[1]} r="2.4" />;
+          return (
+            <circle
+              key={station.id}
+              data-station-id={station.id}
+              className={`game-node${state}${arrivalState}`}
+              cx={point[0]}
+              cy={point[1]}
+              r="2.4"
+              style={{
+                "--completion-delay": `${Math.min(index * 16, 520)}ms`,
+              } as CSSProperties}
+            />
+          );
         })}
         {arrivalPoint && arrivalFeedback ? (
           <circle
@@ -1959,14 +2195,20 @@ function GameScreen({
             r="7"
           />
         ) : null}
+        {completing ? (
+          <g className="terminal-completion-rings">
+            <circle cx={currentPoint[0]} cy={currentPoint[1]} r="7" />
+            <circle cx={currentPoint[0]} cy={currentPoint[1]} r="7" />
+          </g>
+        ) : null}
         <g
           className="map-train"
           data-station-index={stationIndex}
           style={{ transform: `translate(${trainPoint[0]}px, ${trainPoint[1]}px)` }}
         >
           <g
-            key={arrivalFeedback?.sequence ?? "idle"}
-            className={`train-arrival${arrivalActive ? " is-arriving" : ""}`}
+            key={completing ? "completion" : arrivalFeedback?.sequence ?? "idle"}
+            className={`train-arrival${arrivalActive ? " is-arriving" : ""}${completing ? " is-completing" : ""}`}
           >
             <g className="train-glyph" transform={`scale(${trainGlyphScale})`}>
               <circle className="train-halo" r="14" />
@@ -1990,20 +2232,20 @@ function GameScreen({
         <Metric label="正确率" value={accuracy} unit="%" />
       </div>
 
-      <article ref={cardRef} className={`station-card${shake ? " shake" : ""}${arrivalActive ? " arriving" : ""}`} onClick={onFocusTyping}>
-        <div className="station-meta"><span>{String(stationIndex + 1).padStart(2, "0")}</span><span>{city.nameZh}市 · {line.lineName} · 数据 {data.updatedAt}</span></div>
-        <div className="station-main">
+      <article ref={cardRef} className={`station-card${shake ? " shake" : ""}${arrivalActive ? " arriving" : ""}${completing ? " completing" : ""}`} onClick={onFocusTyping}>
+        <div className="station-meta" aria-hidden={completing}><span>{String(stationIndex + 1).padStart(2, "0")}</span><span>{city.nameZh}市 · {line.lineName} · 数据 {data.updatedAt}</span></div>
+        <div className="station-main" aria-hidden={completing}>
           <div><p className={arrivalActive ? "arrival-kicker" : undefined}>{arrivalActive ? "✓ 已到达" : "NOW ARRIVING"}</p><h2>{current.nameZh}</h2></div>
           <div className="next-station"><span>{next ? "下一站" : "终点站"}</span><strong>{next?.nameZh ?? "本线终点"}</strong>{next ? <b>→</b> : null}</div>
         </div>
-        <div className="keyboard-typing-meta">
+        <div className="keyboard-typing-meta" aria-hidden={completing}>
           <strong>{arrivalActive ? `✓ 已到达 · ${current.nameZh}` : current.nameZh}</strong>
           <span>
             {mode === "timed" ? `剩余 ${remainingSeconds} 秒` : `经过 ${elapsedSeconds} 秒`}
             {` · ${stationIndex + 1}/${stations.length} 站`}
           </span>
         </div>
-        <div className={`typing-area${showTypingHint ? " has-hint" : ""}`}>
+        <div className={`typing-area${showTypingHint ? " has-hint" : ""}`} aria-hidden={completing}>
           <div ref={targetRef} className="typing-target" aria-label={`请输入 ${targetLabel}`}>
             <span ref={trackRef} className="typing-track">
               {targetWords.map(({ characters, startIndex, visualSeparator }) => (
@@ -2038,7 +2280,25 @@ function GameScreen({
             <span id="typing-instruction" className="screen-reader-status">直接输入画面上的英文站名，空格可输入或省略</span>
           )}
         </div>
-        <div className="line-strip"><i /><span>{line.lineName}</span></div>
+        <div className="line-strip" aria-hidden={completing}><i /><span>{line.lineName}</span></div>
+        {completing ? (
+          <div className="completion-card" aria-hidden="true">
+            <span className="completion-card-kicker">
+              {isLoop ? "LOOP LINE COMPLETE" : "FULL LINE COMPLETE"}
+            </span>
+            <div className="completion-card-main">
+              <span className="completion-check">✓</span>
+              <div>
+                <h2>{isLoop ? "环线全站完成" : "全线到达"}</h2>
+                <p>
+                  {isLoop
+                    ? `${routeOrigin?.nameZh} · 环线全站 · ${stations.length}/${stations.length} 站`
+                    : `${routeOrigin?.nameZh} → ${routeEnd?.nameZh} · ${stations.length}/${stations.length} 站`}
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </article>
     </section>
   );
@@ -2054,6 +2314,10 @@ function ResultScreen({
   speed,
   speedUnit,
   accuracy,
+  completionReason,
+  lineName,
+  stations,
+  isLoop,
   routeColor,
   onBack,
   onRetry,
@@ -2063,18 +2327,73 @@ function ResultScreen({
   speed: number;
   speedUnit: string;
   accuracy: number;
+  completionReason: CompletionReason;
+  lineName: string;
+  stations: Station[];
+  isLoop: boolean;
   routeColor: string;
   onBack: () => void;
   onRetry: () => void;
 }) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const fullLineComplete = completionReason === "line";
+  const origin = stations[0];
+  const destination = stations.at(-1);
+
+  useEffect(() => {
+    headingRef.current?.focus({ preventScroll: true });
+  }, []);
+
   return (
-    <section className="results" style={{ "--result-route": routeColor } as CSSProperties}>
-      <div className="result-card">
-        <span className="result-kicker">JOURNEY COMPLETE</span>
-        <h2>这班车，跑得很顺。</h2>
-        <p>你在 {elapsedSeconds} 秒内通过了 {completedStations} 个车站。</p>
+    <section
+      className={`results${fullLineComplete ? " line-complete" : " timed-complete"}`}
+      style={{
+        "--result-route": routeColor,
+        "--result-route-ink": getReadableTextColor(routeColor),
+      } as CSSProperties}
+      aria-labelledby="result-title"
+      aria-describedby="result-summary"
+    >
+      <div className={`result-card${fullLineComplete ? " is-line-complete" : ""}`}>
+        {fullLineComplete ? (
+          <div className="completion-ticket">
+            <span className="completion-ticket-check" aria-hidden="true">✓</span>
+            <div>
+              <span>{isLoop ? "LOOP LINE COMPLETE" : "FULL LINE COMPLETE"}</span>
+              <strong>{isLoop ? "环线全站完成" : "全线到达"}</strong>
+            </div>
+            <b>{lineName}</b>
+          </div>
+        ) : (
+          <span className="result-kicker">TIME UP</span>
+        )}
+        <h2
+          id="result-title"
+          ref={headingRef}
+          tabIndex={-1}
+          aria-describedby="result-summary"
+        >
+          {fullLineComplete
+            ? isLoop
+              ? "这条环线，全部到站了。"
+              : "这条线，完整跑下来了。"
+            : "时间到，这班车先停在这里。"}
+        </h2>
+        <p id="result-summary">
+          {fullLineComplete
+            ? `你在 ${elapsedSeconds} 秒内完成了${lineName}的全部 ${stations.length} 个车站。`
+            : `你在 30 秒内通过了 ${completedStations} 个车站。`}
+        </p>
+        {fullLineComplete ? (
+          <div className={`result-route-summary${isLoop ? " is-loop" : ""}`}>
+            <strong>{origin?.nameZh}</strong>
+            <span className="result-route-track" aria-hidden="true"><i /><i /><i /></span>
+            <strong>{isLoop ? "全站完成" : destination?.nameZh}</strong>
+            <small>{stations.length}/{stations.length} 站</small>
+          </div>
+        ) : null}
         <div className="result-metrics">
-          <div><strong>{completedStations}</strong><span>通过站数</span></div>
+          <div><strong>{completedStations}</strong><span>{fullLineComplete ? "全线站数" : "通过站数"}</span></div>
           <div><strong>{speed}</strong><span>平均 {speedUnit}</span></div>
           <div><strong>{accuracy}%</strong><span>正确率</span></div>
         </div>

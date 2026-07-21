@@ -15,6 +15,11 @@ Type station names along real routes and in their actual order while getting to 
 - Beijing
 - Shenzhen
 - Chengdu
+- Guangzhou
+- Wuhan
+- Nanjing
+- Chongqing
+- Suzhou
 
 ## Play Online
 
