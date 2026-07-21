@@ -3,7 +3,18 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { validateMetroData } from "./metro-data-validation.mjs";
 
-export const cityIds = ["hangzhou", "shanghai", "beijing", "shenzhen", "chengdu"];
+export const cityIds = [
+  "hangzhou",
+  "shanghai",
+  "beijing",
+  "shenzhen",
+  "chengdu",
+  "guangzhou",
+  "wuhan",
+  "nanjing",
+  "chongqing",
+  "suzhou",
+];
 
 export async function readMetroData(cityId, root = process.cwd()) {
   const file = path.join(root, "public", "data", "metro", `${cityId}.json`);

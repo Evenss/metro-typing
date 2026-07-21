@@ -34,6 +34,11 @@ const cityExpectations = {
   beijing: { nameZh: "北京", nameEn: "BEIJING", lines: 27, stations: 410 },
   shenzhen: { nameZh: "深圳", nameEn: "SHENZHEN", lines: 16, stations: 351 },
   chengdu: { nameZh: "成都", nameEn: "CHENGDU", lines: 17, stations: 357 },
+  guangzhou: { nameZh: "广州", nameEn: "GUANGZHOU", lines: 19, stations: 317 },
+  wuhan: { nameZh: "武汉", nameEn: "WUHAN", lines: 13, stations: 289 },
+  nanjing: { nameZh: "南京", nameEn: "NANJING", lines: 14, stations: 249 },
+  chongqing: { nameZh: "重庆", nameEn: "CHONGQING", lines: 14, stations: 271 },
+  suzhou: { nameZh: "苏州", nameEn: "SUZHOU", lines: 9, stations: 235 },
 };
 
 function read(relativePath) {
@@ -74,7 +79,7 @@ test("exports one canonical static page for every supported city", async () => {
   );
 });
 
-test("ships five strict, internally consistent metro datasets", async () => {
+test("ships ten strict, internally consistent metro datasets", async () => {
   const results = await validateMetroDataFiles(repoPath);
   assert.deepEqual(
     results.map(({ cityId, lines, stations }) => ({ cityId, lines, stations })),
@@ -171,14 +176,30 @@ test("ships normalized pinyin for every station", async () => {
         /^[a-z0-9ü]+(?: [a-z0-9ü]+)*$/,
         `${station.id} should have normalized syllable-separated pinyin`,
       );
+      assert.ok(!station.nameEn.includes("?"), `${station.id} should have a complete English name`);
     }
   }
 
-  const [hangzhou, shanghai, beijing, shenzhen] = await Promise.all([
+  const [
+    hangzhou,
+    shanghai,
+    beijing,
+    shenzhen,
+    guangzhou,
+    wuhan,
+    nanjing,
+    chongqing,
+    suzhou,
+  ] = await Promise.all([
     readMetroData("hangzhou", repoPath),
     readMetroData("shanghai", repoPath),
     readMetroData("beijing", repoPath),
     readMetroData("shenzhen", repoPath),
+    readMetroData("guangzhou", repoPath),
+    readMetroData("wuhan", repoPath),
+    readMetroData("nanjing", repoPath),
+    readMetroData("chongqing", repoPath),
+    readMetroData("suzhou", repoPath),
   ]);
   assert.equal(hangzhou.stations["hangzhou:受降"].namePinyin, "shou xiang");
   assert.equal(hangzhou.stations["hangzhou:绿汀路"].namePinyin, "lü ting lu");
@@ -190,6 +211,19 @@ test("ships normalized pinyin for every station", async () => {
   assert.equal(shenzhen.stations["shenzhen:岗厦北"].namePinyin, "gang xia bei");
   assert.equal(shenzhen.stations["shenzhen:石厦"].namePinyin, "shi xia");
   assert.equal(shenzhen.stations["shenzhen:长岭陂"].namePinyin, "chang ling pi");
+  assert.equal(guangzhou.stations["guangzhou:区庄"].namePinyin, "ou zhuang");
+  assert.equal(guangzhou.stations["guangzhou:长湴"].namePinyin, "chang ban");
+  assert.equal(guangzhou.stations["guangzhou:朝安"].namePinyin, "chao an");
+  assert.equal(guangzhou.stations["guangzhou:东涌"].namePinyin, "dong chong");
+  assert.equal(wuhan.stations["wuhan:柏林"].namePinyin, "bai lin");
+  assert.equal(wuhan.stations["wuhan:沌阳大道"].namePinyin, "zhuan yang da dao");
+  assert.equal(nanjing.stations["nanjing:小行"].namePinyin, "xiao hang");
+  assert.equal(chongqing.stations["chongqing:重光"].namePinyin, "chong guang");
+  assert.equal(suzhou.stations["suzhou:唯亭"].namePinyin, "wei ting");
+  assert.equal(
+    suzhou.stations["suzhou:倪浜·阳澄数谷"].namePinyin,
+    "ni bang yang cheng shu gu",
+  );
 });
 
 test("keeps displayed spaces optional in English and pinyin input", () => {
@@ -256,12 +290,27 @@ test("keeps displayed spaces optional in English and pinyin input", () => {
   );
 });
 
-test("models branches, loops, asymmetric services, and city exceptions", async () => {
-  const [shanghai, beijing, shenzhen, chengdu] = await Promise.all([
+test("models branches, loops, cross-city services, and city exceptions", async () => {
+  const [
+    shanghai,
+    beijing,
+    shenzhen,
+    chengdu,
+    guangzhou,
+    wuhan,
+    nanjing,
+    chongqing,
+    suzhou,
+  ] = await Promise.all([
     readMetroData("shanghai", repoPath),
     readMetroData("beijing", repoPath),
     readMetroData("shenzhen", repoPath),
     readMetroData("chengdu", repoPath),
+    readMetroData("guangzhou", repoPath),
+    readMetroData("wuhan", repoPath),
+    readMetroData("nanjing", repoPath),
+    readMetroData("chongqing", repoPath),
+    readMetroData("suzhou", repoPath),
   ]);
 
   assert.equal(shanghai.lines.find((line) => line.lineName === "10号线").runs.length, 2);
@@ -289,6 +338,57 @@ test("models branches, loops, asymmetric services, and city exceptions", async (
     6,
   );
   assert.ok(chengdu.districts.some((district) => district.name === "雁江区"));
+
+  assert.ok(!guangzhou.lines.some((line) => line.lineName === "佛山2号线"));
+  assert.equal(
+    guangzhou.lines.find((line) => line.lineName === "14号线").runs.length,
+    2,
+  );
+  assert.equal(
+    guangzhou.lines.find((line) => line.lineName === "11号线").runs[0].kind,
+    "loop",
+  );
+  assert.ok(guangzhou.districts.some((district) => district.name === "顺德区"));
+
+  assert.ok(
+    wuhan.lines
+      .find((line) => line.lineName === "11号线")
+      .stationIds.includes("wuhan:葛店南站"),
+  );
+  assert.ok(wuhan.districts.some((district) => district.name === "华容区"));
+
+  const nanjingS2 = nanjing.lines.find(
+    (line) => line.lineName === "S2号线（宁马线）",
+  );
+  assert.equal(nanjingS2.lineId, "S2");
+  assert.equal(nanjingS2.stationIds.length, 16);
+  assert.ok(nanjing.districts.some((district) => district.name === "当涂县"));
+
+  assert.equal(
+    chongqing.lines.find((line) => line.lineName === "环线").runs[0].kind,
+    "loop",
+  );
+  assert.equal(
+    chongqing.lines.find((line) => line.lineName === "3号线").runs.length,
+    2,
+  );
+  assert.equal(
+    chongqing.lines.find((line) => line.lineName === "3号线").runs[0]
+      .directions[0].stationIds[0],
+    "chongqing:鱼洞",
+  );
+  assert.notEqual(
+    chongqing.lines.find((line) => line.lineName === "6号线").id,
+    chongqing.lines.find((line) => line.lineName === "6号线东站段").id,
+  );
+
+  assert.ok(suzhou.stations["suzhou:唯亭"]);
+  assert.ok(!Object.keys(suzhou.stations).some((id) => id.startsWith("suzhou:唯亭（")));
+  assert.ok(
+    suzhou.lines
+      .filter((line) => ["3号线", "11号线"].includes(line.lineName))
+      .every((line) => line.stationIds.includes("suzhou:唯亭")),
+  );
 });
 
 test("ships complete static assets and generic multi-city runtime", async () => {
