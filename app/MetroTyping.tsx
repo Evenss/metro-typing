@@ -40,6 +40,7 @@ import {
   ARRIVAL_CHIME_STRIKE,
   ARRIVAL_FEEDBACK_DURATION_MS,
   COMPLETION_CHIME_NOTES,
+  DEPARTURE_CHIME_NOTES,
   shouldPlayArrivalChime,
 } from "../lib/metro/arrival-feedback";
 import {
@@ -50,7 +51,7 @@ import {
 } from "../lib/metro/typing";
 import { TYPING_ERROR_TONE } from "../lib/metro/typing-feedback";
 
-type Screen = "home" | "game" | "completing" | "result";
+type Screen = "home" | "departing" | "game" | "completing" | "result";
 type GameMode = "timed" | "line";
 type TypingLanguage = "en" | "pinyin";
 type CompletionReason = "timed" | "line";
@@ -107,6 +108,7 @@ const MAP_HEIGHT = 700;
 const FULL_VIEWBOX = `0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`;
 const GAME_DURATION = 30_000;
 const LINE_COMPLETION_DURATION_MS = 1_150;
+const DEPARTURE_DURATION_MS = 2_050;
 const DEFAULT_OVERVIEW_METRO_EXTENT: MapExtent = {
   left: 450,
   right: 950,
@@ -700,6 +702,7 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
   const lastArrivalChimeAtRef = useRef(Number.NEGATIVE_INFINITY);
   const shakeFrameRef = useRef<number | null>(null);
   const shakeTimeoutRef = useRef<number | null>(null);
+  const departurePendingRef = useRef(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -967,6 +970,10 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
     playChime(COMPLETION_CHIME_NOTES, false);
   }, [playChime]);
 
+  const playDepartureChime = useCallback(() => {
+    playChime(DEPARTURE_CHIME_NOTES, false);
+  }, [playChime]);
+
   const playTypingErrorSound = useCallback(() => {
     const context = getArrivalAudioContext();
     if (!context || context.state === "closed") return;
@@ -1064,6 +1071,30 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
     );
     return () => window.clearTimeout(timer);
   }, [screen]);
+
+  const finishDeparture = useCallback(() => {
+    if (!departurePendingRef.current) return;
+    departurePendingRef.current = false;
+    playingRef.current = true;
+    startedAtRef.current = performance.now();
+    setScreen("game");
+    window.setTimeout(
+      () => inputRef.current?.focus({ preventScroll: true }),
+      0,
+    );
+  }, []);
+
+  useEffect(() => {
+    if (screen !== "departing") return undefined;
+    const reducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    const timer = window.setTimeout(
+      finishDeparture,
+      reducedMotion ? 80 : DEPARTURE_DURATION_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [finishDeparture, screen]);
 
   const finishGame = useCallback(
     (reason: CompletionReason, finalElapsed?: number) => {
@@ -1181,7 +1212,12 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.isComposing || event.keyCode === 229) return;
       if (event.key === "Escape") {
-        if (screen === "game" || screen === "completing") {
+        if (
+          screen === "departing" ||
+          screen === "game" ||
+          screen === "completing"
+        ) {
+          departurePendingRef.current = false;
           playingRef.current = false;
           clearArrivalFeedback();
           clearShakeFeedback();
@@ -1231,6 +1267,7 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
   }
 
   function resetHome(clearLine = true) {
+    departurePendingRef.current = false;
     playingRef.current = false;
     clearArrivalFeedback();
     clearShakeFeedback();
@@ -1251,6 +1288,7 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
     arrivalSequenceRef.current = 0;
     lastArrivalChimeAtRef.current = Number.NEGATIVE_INFINITY;
     prepareArrivalAudio();
+    playDepartureChime();
     resetTypingInput(false);
     const stations = [...selectedDirection.stations];
     gameStationsRef.current = stations;
@@ -1258,8 +1296,8 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
     typedIndexRef.current = 0;
     modeRef.current = mode;
     languageRef.current = typingLanguage;
-    playingRef.current = true;
-    startedAtRef.current = performance.now();
+    playingRef.current = false;
+    departurePendingRef.current = true;
     setGameStations(stations);
     setStationIndex(0);
     setTypedIndex(0);
@@ -1268,8 +1306,7 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
     setCompletedStations(0);
     setElapsedMs(0);
     setCompletionReason(null);
-    setScreen("game");
-    window.setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 0);
+    setScreen("departing");
   }
 
   function handleInput(event: FormEvent<HTMLInputElement>) {
@@ -1289,6 +1326,7 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
   }
 
   const journeyVisible = screen === "game" || screen === "completing";
+  const immersiveScreen = screen === "departing" || journeyVisible;
 
   return (
     <div className={`metro-app${dark ? " dark" : ""}`}>
@@ -1322,7 +1360,7 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
         }}
       />
 
-      {!journeyVisible ? (
+      {!immersiveScreen ? (
         <Header
           city={city}
           dark={dark}
@@ -1356,6 +1394,19 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
             onModeChange={setMode}
             onTypingLanguageChange={setTypingLanguage}
             onStart={startGame}
+          />
+        ) : null}
+        {screen === "departing" &&
+        selectedLine &&
+        mapModel &&
+        gameStations.length ? (
+          <DepartureScreen
+            city={city}
+            line={selectedLine}
+            mapModel={mapModel}
+            stations={gameStations}
+            mode={mode}
+            onSkip={finishDeparture}
           />
         ) : null}
         {data && mapModel && journeyVisible && selectedLine && currentStation ? (
@@ -1406,7 +1457,7 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
         ) : null}
       </main>
 
-      {!journeyVisible ? <Footer city={city} data={data} /> : null}
+      {!immersiveScreen ? <Footer city={city} data={data} /> : null}
     </div>
   );
 }
@@ -1937,6 +1988,126 @@ function SegmentedControl({
         ))}
       </div>
     </div>
+  );
+}
+
+function DepartureScreen({
+  city,
+  line,
+  mapModel,
+  stations,
+  mode,
+  onSkip,
+}: {
+  city: CityConfig;
+  line: MetroLine;
+  mapModel: MapModel;
+  stations: Station[];
+  mode: GameMode;
+  onSkip: () => void;
+}) {
+  const origin = stations[0];
+  const destination = stations.at(-1);
+  const journeyPoints = stations
+    .map((station) => mapModel.stationPoints.get(station.id))
+    .filter((point): point is Point => Boolean(point));
+  const routeViewBox = getRouteViewBox(journeyPoints, 440, 72, -0.03);
+
+  return (
+    <section
+      className="departure-screen"
+      style={{
+        "--departure-route": line.color,
+        "--departure-route-ink": getReadableTextColor(line.color),
+      } as CSSProperties}
+      aria-label="列车长进入驾驶室，准备发车"
+    >
+      <div className="departure-progress" aria-hidden="true"><i /></div>
+
+      <div className="departure-map-stage" aria-hidden="true">
+        <svg
+          className="departure-route-map"
+          viewBox={routeViewBox}
+          preserveAspectRatio="xMidYMid meet"
+        >
+          <g className="departure-districts">
+            {mapModel.districtPaths.map((district) => (
+              <path key={district.name} d={district.path} />
+            ))}
+          </g>
+          {journeyPoints.length > 1 ? (
+            <>
+              <polyline
+                className="departure-route-casing"
+                points={pointsToString(journeyPoints)}
+              />
+              <polyline
+                className="departure-route-line"
+                points={pointsToString(journeyPoints)}
+                pathLength="1"
+              />
+            </>
+          ) : null}
+          {journeyPoints.map(([x, y], index) => (
+            <circle
+              key={stations[index]?.id ?? index}
+              className={`departure-route-node${index === 0 ? " origin" : ""}${index === journeyPoints.length - 1 ? " destination" : ""}`}
+              cx={x}
+              cy={y}
+              r={index === 0 ? 5.8 : 3.4}
+              style={{ "--node-index": index } as CSSProperties}
+            />
+          ))}
+        </svg>
+      </div>
+
+      <div className="departure-content">
+        <div className="departure-heading" role="status" aria-live="polite">
+          <span className="departure-kicker">
+            <i /> OPERATOR 01 · {city.nameZh.toUpperCase()} METRO
+          </span>
+          <div className="departure-heading-swap">
+            <h2>列车长已就位</h2>
+            <h2>准备发车</h2>
+          </div>
+          <p>正在接管本次列车，确认线路与行驶方向。</p>
+        </div>
+
+        <div className="departure-ticket">
+          <div className="departure-ticket-top">
+            <span>DEPARTURE CLEARANCE</span>
+            <span>{mode === "timed" ? "30 SEC RUN" : "FULL LINE"}</span>
+          </div>
+          <div className="departure-ticket-main">
+            <span className="departure-line-code">{line.lineId}</span>
+            <div>
+              <small>{line.lineName}</small>
+              <strong>{origin?.nameZh} <i>→</i> {destination?.nameZh}</strong>
+            </div>
+          </div>
+          <div className="departure-ticket-track" aria-hidden="true">
+            <i className="departure-track-line" />
+            <span className="departure-track-node origin" />
+            <span className="departure-track-node waypoint one" />
+            <span className="departure-track-node waypoint two" />
+            <span className="departure-track-node destination" />
+            <b>发</b>
+          </div>
+          <div className="departure-ticket-status">
+            <span>驾驶室 01</span>
+            <strong><i /> 信号开放</strong>
+          </div>
+        </div>
+      </div>
+
+      <div className="departure-status" aria-hidden="true">
+        <span>正在确认发车许可</span>
+        <span>线路已激活 · 准备发车</span>
+      </div>
+      <button className="departure-skip" type="button" onClick={onSkip}>
+        跳过过场 <span>→</span>
+      </button>
+    </section>
   );
 }
 

@@ -11,7 +11,10 @@ function read(relativePath) {
 test("keeps full-line completion visible before showing its result", async () => {
   const client = await read("app/MetroTyping.tsx");
 
-  assert.match(client, /type Screen = "home" \| "game" \| "completing" \| "result"/);
+  assert.match(
+    client,
+    /type Screen = "home" \| "departing" \| "game" \| "completing" \| "result"/,
+  );
   assert.match(client, /type CompletionReason = "timed" \| "line"/);
   assert.match(client, /if \(stationIndexRef\.current >= stations\.length - 1\)/);
   assert.doesNotMatch(
@@ -28,6 +31,31 @@ test("keeps full-line completion visible before showing its result", async () =>
   assert.match(client, /screen === "game" \|\| screen === "completing"/);
   assert.match(client, /journeyVisible && selectedLine && currentStation/);
   assert.match(client, /if \(screen === "game"\) \{[\s\S]{0,160}inputRef\.current\?\.focus/);
+});
+
+test("finishes the departure transition before starting the run clock", async () => {
+  const [client, css] = await Promise.all([
+    read("app/MetroTyping.tsx"),
+    read("app/globals.css"),
+  ]);
+
+  assert.match(client, /const DEPARTURE_DURATION_MS = 2_050/);
+  assert.match(client, /departurePendingRef\.current = true/);
+  assert.match(client, /playingRef\.current = false[\s\S]{0,500}setScreen\("departing"\)/);
+  assert.match(client, /if \(!departurePendingRef\.current\) return/);
+  assert.match(
+    client,
+    /playingRef\.current = true;\s*startedAtRef\.current = performance\.now\(\);\s*setScreen\("game"\)/,
+  );
+  assert.match(client, /reducedMotion \? 80 : DEPARTURE_DURATION_MS/);
+  assert.match(client, /playChime\(DEPARTURE_CHIME_NOTES, false\)/);
+  assert.match(client, /prepareArrivalAudio\(\);\s*playDepartureChime\(\)/);
+  assert.match(client, /<DepartureScreen[\s\S]{0,260}onSkip=\{finishDeparture\}/);
+  assert.match(client, /className="departure-route-map"/);
+  assert.match(client, /className="departure-ticket"/);
+  assert.match(css, /\.departure-screen/);
+  assert.match(css, /@keyframes departure-map-focus/);
+  assert.match(css, /@keyframes departure-route-draw/);
 });
 
 test("renders a route-specific completion ceremony and persistent result", async () => {

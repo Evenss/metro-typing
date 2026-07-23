@@ -7,6 +7,7 @@ import {
   ARRIVAL_CHIME_STRIKE,
   ARRIVAL_FEEDBACK_DURATION_MS,
   COMPLETION_CHIME_NOTES,
+  DEPARTURE_CHIME_NOTES,
   shouldPlayArrivalChime,
 } from "../lib/metro/arrival-feedback.js";
 
@@ -67,6 +68,35 @@ test("prevents overlapping arrival chimes without suppressing later stations", (
   assert.equal(shouldPlayArrivalChime(1000, 1000 + ARRIVAL_CHIME_COOLDOWN_MS - 1), false);
   assert.equal(shouldPlayArrivalChime(1000, 1000 + ARRIVAL_CHIME_COOLDOWN_MS), true);
   assert.equal(shouldPlayArrivalChime(1000, Number.NaN), false);
+});
+
+test("defines a short ascending departure clearance cue", () => {
+  assert.equal(DEPARTURE_CHIME_NOTES.length, 3);
+  assert.ok(
+    DEPARTURE_CHIME_NOTES.every((note, index, notes) =>
+      index === 0 || note.frequency > notes[index - 1].frequency,
+    ),
+  );
+  assert.ok(
+    DEPARTURE_CHIME_NOTES.every((note, index, notes) =>
+      index === 0 || note.delay > notes[index - 1].delay,
+    ),
+  );
+
+  const totalDuration = Math.max(
+    ...DEPARTURE_CHIME_NOTES.map((note) => note.delay + note.duration),
+  );
+  assert.ok(totalDuration <= 1);
+  assert.ok(DEPARTURE_CHIME_NOTES.at(-1).gain > DEPARTURE_CHIME_NOTES[0].gain);
+  assert.ok(DEPARTURE_CHIME_NOTES.at(-1).frequency < ARRIVAL_CHIME_NOTES[0].frequency);
+  assert.notDeepEqual(DEPARTURE_CHIME_NOTES, COMPLETION_CHIME_NOTES);
+  const maximumToneGain = Math.max(
+    ...DEPARTURE_CHIME_NOTES.map((note) => note.gain),
+  );
+  const theoreticalPeak = maximumToneGain
+    * ARRIVAL_CHIME_PARTIALS.reduce((sum, partial) => sum + partial.level, 0)
+    + ARRIVAL_CHIME_STRIKE.gain;
+  assert.ok(theoreticalPeak < 0.06);
 });
 
 test("defines a distinct ascending full-line completion cadence", () => {
