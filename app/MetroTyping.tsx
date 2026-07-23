@@ -28,8 +28,11 @@ import {
   compressPointBeforeFocus,
   isPointInRing,
 } from "../lib/metro/map-geometry";
+import { getLineBadgeLabel } from "../lib/metro/line-label";
 import {
+  getDepartureCameraFraming,
   getGameSafeRect,
+  getJourneyCameraMinimumWidth,
   getMobileKeyboardViewport,
   getTrackingViewBox,
   interpolateViewBox,
@@ -1875,7 +1878,7 @@ function HomeScreen({
             <span className="focus-kicker">SELECTED ROUTE</span>
             <div className="focus-route-title">
               <span className="focus-line-code" style={{ "--focus-color": selectedLine.color } as CSSProperties}>
-                {selectedLine.lineId}
+                {getLineBadgeLabel(selectedLine.lineId)}
               </span>
               <div>
                 <h2>{selectedLine.lineName}</h2>
@@ -1896,7 +1899,7 @@ function HomeScreen({
               style={{ "--route": line.color } as CSSProperties}
               onClick={() => selectLine(line.id)}
             >
-              <span className="route-symbol">{line.lineId}</span>
+              <span className="route-symbol">{getLineBadgeLabel(line.lineId)}</span>
               <span><strong>{line.lineName}</strong><small>{line.operatorName} · {line.stationIds.length} 站</small></span>
             </button>
           ))}
@@ -2011,7 +2014,23 @@ function DepartureScreen({
   const journeyPoints = stations
     .map((station) => mapModel.stationPoints.get(station.id))
     .filter((point): point is Point => Boolean(point));
-  const routeViewBox = getRouteViewBox(journeyPoints, 440, 72, -0.03);
+  const departureCamera = getDepartureCameraFraming(journeyPoints);
+  const routeViewBox = getRouteViewBox(
+    journeyPoints,
+    departureCamera.minimumWidth,
+    departureCamera.padding,
+    -0.03,
+  );
+  const routeViewBoxWidth =
+    Number(routeViewBox.split(/\s+/)[2]) || departureCamera.minimumWidth;
+  const departureNodeRadius = Math.min(
+    Math.max(routeViewBoxWidth * 0.0077, 1.05),
+    3.4,
+  );
+  const departureOriginRadius = Math.min(
+    Math.max(routeViewBoxWidth * 0.0132, 1.6),
+    5.8,
+  );
 
   return (
     <section
@@ -2054,7 +2073,7 @@ function DepartureScreen({
               className={`departure-route-node${index === 0 ? " origin" : ""}${index === journeyPoints.length - 1 ? " destination" : ""}`}
               cx={x}
               cy={y}
-              r={index === 0 ? 5.8 : 3.4}
+              r={index === 0 ? departureOriginRadius : departureNodeRadius}
               style={{ "--node-index": index } as CSSProperties}
             />
           ))}
@@ -2079,7 +2098,7 @@ function DepartureScreen({
             <span>{mode === "timed" ? "30 SEC RUN" : "FULL LINE"}</span>
           </div>
           <div className="departure-ticket-main">
-            <span className="departure-line-code">{line.lineId}</span>
+            <span className="departure-line-code">{getLineBadgeLabel(line.lineId)}</span>
             <div>
               <small>{line.lineName}</small>
               <strong>{origin?.nameZh} <i>→</i> {destination?.nameZh}</strong>
@@ -2231,16 +2250,20 @@ function GameScreen({
         cameraLayout.safeRect,
         {
           anchorPoint: completionAnchor,
-          minimumWidth: cameraLayout.width <= 620 ? 300 : 420,
+          minimumWidth: getJourneyCameraMinimumWidth(
+            completionJourneyPoints,
+            cameraLayout.width,
+            true,
+          ),
           padding: cameraLayout.width <= 620 ? 24 : 42,
           forwardBias: 0,
         },
       ) as ViewBox;
     }
-    const minimumWidth =
-      cameraLayout.width <= 620
-        ? 260
-        : Math.min(Math.max(cameraLayout.width / 4, 340), 420);
+    const minimumWidth = getJourneyCameraMinimumWidth(
+      journeyPoints,
+      cameraLayout.width,
+    );
     const options = {
       anchorPoint: currentPoint,
       headingPoint: next ? nextPoint : null,
@@ -2267,11 +2290,19 @@ function GameScreen({
     return contextTarget[2] <= contextSoftMaximum
       ? contextTarget
       : segmentTarget;
-  }, [cameraFocusPoints, cameraLayout, completing, completionAnchor, completionJourneyPoints, currentPoint, next, nextPoint]);
+  }, [cameraFocusPoints, cameraLayout, completing, completionAnchor, completionJourneyPoints, currentPoint, journeyPoints, next, nextPoint]);
   const { viewBox: cameraViewBox, animating: cameraAnimating } =
     useAnimatedViewBox(cameraTargetViewBox, completing ? 620 : 340);
   const mapPixelsPerUnit =
     cameraLayout.width / Math.max(cameraViewBox[2], 1);
+  const stationNodeRadius = Math.min(
+    Math.max(22 / Math.max(mapPixelsPerUnit, 1), 0.9),
+    2.4,
+  );
+  const feedbackRingRadius = Math.min(
+    Math.max(46 / Math.max(mapPixelsPerUnit, 1), 2.8),
+    7,
+  );
   const trainGlyphScale = Math.min(
     Math.max(36 / Math.max(20 * mapPixelsPerUnit, 1), 0.2),
     4,
@@ -2350,7 +2381,7 @@ function GameScreen({
               className={`game-node${state}${arrivalState}`}
               cx={point[0]}
               cy={point[1]}
-              r="2.4"
+              r={stationNodeRadius}
               style={{
                 "--completion-delay": `${Math.min(index * 16, 520)}ms`,
               } as CSSProperties}
@@ -2363,13 +2394,13 @@ function GameScreen({
             className="station-arrival-ring"
             cx={arrivalPoint[0]}
             cy={arrivalPoint[1]}
-            r="7"
+            r={feedbackRingRadius}
           />
         ) : null}
         {completing ? (
           <g className="terminal-completion-rings">
-            <circle cx={currentPoint[0]} cy={currentPoint[1]} r="7" />
-            <circle cx={currentPoint[0]} cy={currentPoint[1]} r="7" />
+            <circle cx={currentPoint[0]} cy={currentPoint[1]} r={feedbackRingRadius} />
+            <circle cx={currentPoint[0]} cy={currentPoint[1]} r={feedbackRingRadius} />
           </g>
         ) : null}
         <g

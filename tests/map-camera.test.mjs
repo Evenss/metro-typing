@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  getDepartureCameraFraming,
   getGameSafeRect,
+  getJourneyCameraMinimumWidth,
   getMobileKeyboardViewport,
   getTrackingViewBox,
   interpolateViewBox,
@@ -91,6 +93,35 @@ test("detects only a mobile software keyboard obstruction", () => {
     }),
     { open: false, tight: false, inset: 0 },
   );
+});
+
+test("zooms compact short journeys without over-zooming distant short lines", () => {
+  const compactJourney = [
+    [600.9, 317.3],
+    [604, 323.5],
+    [605, 328.4],
+    [605, 332],
+  ];
+  const distantShortJourney = [
+    [693.4, 371.4],
+    [700.1, 439.4],
+    [724.3, 576.1],
+  ];
+
+  const compactDeparture = getDepartureCameraFraming(compactJourney);
+  const distantDeparture = getDepartureCameraFraming(distantShortJourney);
+  assert.equal(compactDeparture.minimumWidth, 120);
+  assert.equal(compactDeparture.padding, 24);
+  assert.equal(distantDeparture.minimumWidth, 440);
+  assert.ok(distantDeparture.padding > compactDeparture.padding);
+
+  assert.equal(getJourneyCameraMinimumWidth(compactJourney, 2560), 170);
+  assert.equal(
+    getJourneyCameraMinimumWidth(compactJourney, 2560, true),
+    210,
+  );
+  assert.equal(getJourneyCameraMinimumWidth(compactJourney, 390), 150);
+  assert.equal(getJourneyCameraMinimumWidth(distantShortJourney, 2560), 420);
 });
 
 test("keeps an entire typed segment inside the unobstructed mobile area", () => {
