@@ -10,6 +10,7 @@ import {
   type CSSProperties,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
+  type RefObject,
 } from "react";
 import {
   cities,
@@ -53,6 +54,13 @@ import {
   normalizeTypingCharacter,
 } from "../lib/metro/typing";
 import { TYPING_ERROR_TONE } from "../lib/metro/typing-feedback";
+import {
+  createSouvenirTicketFileName,
+  createSouvenirTicketShareText,
+  shouldCreateSouvenirTicket,
+  SOUVENIR_TICKET_HEIGHT,
+  SOUVENIR_TICKET_WIDTH,
+} from "../lib/metro/souvenir-ticket";
 
 type Screen = "home" | "departing" | "game" | "completing" | "result";
 type GameMode = "timed" | "line";
@@ -93,6 +101,17 @@ type ChimeNote = {
   delay: number;
   duration: number;
   gain: number;
+};
+
+type SouvenirTicketDetails = {
+  cityName: string;
+  cityNameEn: string;
+  lineName: string;
+  lineCode: string;
+  direction: string;
+  stationCount: number;
+  routeColor: string;
+  routeInk: string;
 };
 
 type ResolvedRun = {
@@ -315,6 +334,64 @@ function getReadableTextColor(background: string) {
   const darkContrast = (luminance + 0.05) / 0.05;
   const lightContrast = 1.05 / (luminance + 0.05);
   return darkContrast >= lightContrast ? "#161619" : "#ffffff";
+}
+
+async function createSouvenirTicketPngFile(
+  svg: SVGSVGElement,
+  fileName: string,
+) {
+  const serializedSvg = new XMLSerializer().serializeToString(svg);
+  const svgBlob = new Blob([serializedSvg], {
+    type: "image/svg+xml;charset=utf-8",
+  });
+  const svgUrl = URL.createObjectURL(svgBlob);
+
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const nextImage = new Image();
+      nextImage.onload = () => resolve(nextImage);
+      nextImage.onerror = () => reject(
+        new Error("纪念票图像载入失败"),
+      );
+      nextImage.src = svgUrl;
+    });
+    const canvas = document.createElement("canvas");
+    canvas.width = SOUVENIR_TICKET_WIDTH;
+    canvas.height = SOUVENIR_TICKET_HEIGHT;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("当前浏览器无法生成纪念票");
+    context.drawImage(
+      image,
+      0,
+      0,
+      SOUVENIR_TICKET_WIDTH,
+      SOUVENIR_TICKET_HEIGHT,
+    );
+    const pngBlob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error("纪念票 PNG 生成失败"));
+      }, "image/png");
+    });
+
+    return new File([pngBlob], fileName, {
+      type: "image/png",
+      lastModified: Date.now(),
+    });
+  } finally {
+    URL.revokeObjectURL(svgUrl);
+  }
+}
+
+function downloadSouvenirTicket(file: File) {
+  const downloadUrl = URL.createObjectURL(file);
+  const link = document.createElement("a");
+  link.href = downloadUrl;
+  link.download = file.name;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 60_000);
 }
 
 function viewBoxesEqual(first: ViewBox, second: ViewBox) {
@@ -1450,7 +1527,14 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
             speedUnit={typingLanguage === "pinyin" ? "KPM" : "WPM"}
             accuracy={accuracy}
             completionReason={completionReason ?? "timed"}
+            gameMode={mode}
+            cityName={city.nameZh}
+            cityNameEn={city.nameEn}
             lineName={selectedLine?.lineName ?? ""}
+            lineCode={selectedLine
+              ? getLineBadgeLabel(selectedLine.lineId)
+              : ""}
+            directionLabel={selectedDirection?.labelZh ?? ""}
             stations={gameStations}
             isLoop={selectedRun?.kind === "loop"}
             routeColor={selectedLine?.color ?? "#f08c4a"}
@@ -2510,6 +2594,441 @@ function Metric({ label, value, unit }: { label: string; value: number; unit: st
   return <div><small>{label}</small><strong>{value}</strong><span>{unit}</span></div>;
 }
 
+function SouvenirTicket({
+  details,
+  svgRef,
+}: {
+  details: SouvenirTicketDetails;
+  svgRef: RefObject<SVGSVGElement | null>;
+}) {
+  const {
+    cityName,
+    cityNameEn,
+    lineName,
+    lineCode,
+    direction,
+    stationCount,
+    routeColor,
+    routeInk,
+  } = details;
+  const lineFontSize = lineName.length > 10
+    ? 40
+    : lineName.length > 7
+      ? 48
+      : 56;
+  const directionFontSize = direction.length > 27
+    ? 24
+    : direction.length > 21
+      ? 28
+      : 32;
+  const lineCodeFontSize = lineCode.length > 3 ? 24 : 31;
+
+  return (
+    <figure className="souvenir-ticket-figure">
+      <svg
+        ref={svgRef}
+        className="souvenir-ticket-art"
+        xmlns="http://www.w3.org/2000/svg"
+        width={SOUVENIR_TICKET_WIDTH}
+        height={SOUVENIR_TICKET_HEIGHT}
+        viewBox={`0 0 ${SOUVENIR_TICKET_WIDTH} ${SOUVENIR_TICKET_HEIGHT}`}
+        role="img"
+        aria-labelledby="souvenir-ticket-title souvenir-ticket-description"
+      >
+        <title id="souvenir-ticket-title">
+          {cityName}地铁{lineName}全线通关纪念票
+        </title>
+        <desc id="souvenir-ticket-description">
+          {`${cityName}地铁，${lineName}，${direction}，总站数 ${stationCount}，全线通关。`}
+        </desc>
+        <defs>
+          <pattern
+            id="souvenir-ticket-paper"
+            width="15"
+            height="15"
+            patternUnits="userSpaceOnUse"
+          >
+            <circle cx="2" cy="3" r="1.1" fill="#3b342a" opacity=".09" />
+            <circle cx="11" cy="9" r=".8" fill="#3b342a" opacity=".07" />
+          </pattern>
+          <clipPath id="souvenir-ticket-shape">
+            <rect
+              x="30"
+              y="30"
+              width="1140"
+              height="615"
+              rx="32"
+            />
+          </clipPath>
+        </defs>
+
+        <rect width="1200" height="675" rx="42" fill="#e9dfcc" />
+        <rect
+          x="30"
+          y="30"
+          width="1140"
+          height="615"
+          rx="32"
+          fill="#fffaf0"
+        />
+        <rect
+          x="30"
+          y="30"
+          width="1140"
+          height="615"
+          rx="32"
+          fill="url(#souvenir-ticket-paper)"
+        />
+        <rect
+          x="30"
+          y="30"
+          width="1140"
+          height="32"
+          fill={routeColor}
+          clipPath="url(#souvenir-ticket-shape)"
+        />
+        <rect
+          x="30"
+          y="30"
+          width="1140"
+          height="615"
+          rx="32"
+          fill="none"
+          stroke="#2a2824"
+          strokeWidth="3"
+        />
+        <circle cx="30" cy="338" r="18" fill="#e9dfcc" />
+        <circle cx="1170" cy="338" r="18" fill="#e9dfcc" />
+        <path
+          d="M920 64V611"
+          fill="none"
+          stroke="#7f7668"
+          strokeWidth="3"
+          strokeDasharray="10 12"
+          opacity=".65"
+        />
+
+        <g
+          fill="#25231f"
+          fontFamily="'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif"
+        >
+          <text
+            x="76"
+            y="105"
+            fontFamily="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace"
+            fontSize="18"
+            fontWeight="700"
+            letterSpacing="3.6"
+          >
+            METRO TYPING · FULL-LINE SOUVENIR
+          </text>
+          <text
+            x="873"
+            y="105"
+            textAnchor="end"
+            fontFamily="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace"
+            fontSize="16"
+            fontWeight="700"
+            letterSpacing="2"
+          >
+            ADMIT ONE
+          </text>
+
+          <circle
+            cx="144"
+            cy="203"
+            r="64"
+            fill="#fffaf0"
+            stroke={routeColor}
+            strokeWidth="12"
+          />
+          <text
+            x="144"
+            y="213"
+            textAnchor="middle"
+            fill={routeColor}
+            fontFamily="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace"
+            fontSize={lineCodeFontSize}
+            fontWeight="900"
+          >
+            {lineCode}
+          </text>
+          <text
+            x="245"
+            y="156"
+            fill="#776e61"
+            fontFamily="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace"
+            fontSize="16"
+            fontWeight="700"
+            letterSpacing="2.4"
+          >
+            线路 / LINE
+          </text>
+          <text
+            x="245"
+            y="213"
+            fontSize={lineFontSize}
+            fontWeight="900"
+            letterSpacing="-1.6"
+          >
+            {lineName}
+          </text>
+          <text
+            x="245"
+            y="253"
+            fill="#5d564d"
+            fontSize="22"
+            fontWeight="700"
+          >
+            {`${cityName}地铁 · ${cityNameEn.toUpperCase()} METRO`}
+          </text>
+
+          <text
+            x="76"
+            y="319"
+            fill="#776e61"
+            fontFamily="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace"
+            fontSize="16"
+            fontWeight="700"
+            letterSpacing="2.4"
+          >
+            行驶方向 / DIRECTION
+          </text>
+          <text
+            x="76"
+            y="365"
+            fontSize={directionFontSize}
+            fontWeight="800"
+          >
+            {direction}
+          </text>
+
+          <line
+            x1="91"
+            y1="427"
+            x2="854"
+            y2="427"
+            stroke="#302d28"
+            strokeWidth="18"
+            strokeLinecap="round"
+            opacity=".12"
+          />
+          <line
+            x1="91"
+            y1="427"
+            x2="838"
+            y2="427"
+            stroke={routeColor}
+            strokeWidth="10"
+            strokeLinecap="round"
+          />
+          {[91, 278, 465, 652, 838].map((x, index) => (
+            <circle
+              key={x}
+              cx={x}
+              cy="427"
+              r={index === 0 || index === 4 ? 13 : 10}
+              fill={index === 0 ? routeColor : "#fffaf0"}
+              stroke={routeColor}
+              strokeWidth="6"
+            />
+          ))}
+          <path
+            d="m838 411 27 16-27 16Z"
+            fill={routeColor}
+          />
+
+          <text
+            x="76"
+            y="503"
+            fill="#776e61"
+            fontFamily="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace"
+            fontSize="16"
+            fontWeight="700"
+            letterSpacing="2.4"
+          >
+            总站数 / TOTAL STATIONS
+          </text>
+          <text
+            x="76"
+            y="583"
+            fontFamily="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace"
+            fontSize="72"
+            fontWeight="700"
+          >
+            {String(stationCount).padStart(2, "0")}
+          </text>
+          <text
+            x="185"
+            y="575"
+            fill="#5d564d"
+            fontFamily="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace"
+            fontSize="18"
+            fontWeight="700"
+            letterSpacing="2"
+          >
+            STATIONS CLEARED
+          </text>
+          <text
+            x="873"
+            y="583"
+            textAnchor="end"
+            fill="#776e61"
+            fontFamily="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace"
+            fontSize="15"
+            fontWeight="700"
+            letterSpacing="1.8"
+          >
+            VALID FOR THIS JOURNEY
+          </text>
+        </g>
+
+        <rect
+          x="946"
+          y="78"
+          width="198"
+          height="524"
+          rx="24"
+          fill={routeColor}
+          opacity=".09"
+        />
+        <g
+          textAnchor="middle"
+          fontFamily="'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif"
+        >
+          <text
+            x="1045"
+            y="119"
+            fill="#5d564d"
+            fontFamily="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace"
+            fontSize="15"
+            fontWeight="700"
+            letterSpacing="2.4"
+          >
+            VALIDATED
+          </text>
+          <circle
+            cx="1045"
+            cy="226"
+            r="80"
+            fill="none"
+            stroke={routeColor}
+            strokeWidth="6"
+            strokeDasharray="8 7"
+          />
+          <circle
+            cx="1045"
+            cy="226"
+            r="62"
+            fill={routeColor}
+          />
+          <text
+            x="1045"
+            y="248"
+            fill={routeInk}
+            fontSize="66"
+            fontWeight="900"
+          >
+            ✓
+          </text>
+          <text
+            x="1045"
+            y="348"
+            fill="#25231f"
+            fontSize="32"
+            fontWeight="900"
+            letterSpacing="3"
+          >
+            全线通关
+          </text>
+          <text
+            x="1045"
+            y="382"
+            fill="#5d564d"
+            fontFamily="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace"
+            fontSize="14"
+            fontWeight="700"
+            letterSpacing="1.6"
+          >
+            FULL LINE COMPLETE
+          </text>
+          <line
+            x1="978"
+            y1="421"
+            x2="1112"
+            y2="421"
+            stroke="#7f7668"
+            strokeWidth="2"
+          />
+          <text
+            x="1045"
+            y="476"
+            fill={routeColor}
+            fontFamily="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace"
+            fontSize="42"
+            fontWeight="900"
+          >
+            {String(stationCount).padStart(2, "0")}
+          </text>
+          <text
+            x="1045"
+            y="506"
+            fill="#5d564d"
+            fontFamily="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace"
+            fontSize="13"
+            fontWeight="700"
+            letterSpacing="2"
+          >
+            ALL STATIONS
+          </text>
+          <text
+            x="1045"
+            y="557"
+            fill="#25231f"
+            fontSize="20"
+            fontWeight="800"
+          >
+            {cityName}
+          </text>
+          <text
+            x="1045"
+            y="582"
+            fill="#776e61"
+            fontFamily="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace"
+            fontSize="12"
+            fontWeight="700"
+            letterSpacing="1.4"
+          >
+            METRO TYPING · 01
+          </text>
+        </g>
+      </svg>
+      <dl className="souvenir-ticket-mobile-details" aria-hidden="true">
+        <div>
+          <dt>城市</dt>
+          <dd>{cityName}</dd>
+        </div>
+        <div>
+          <dt>线路</dt>
+          <dd>{lineName}</dd>
+        </div>
+        <div className="souvenir-ticket-mobile-direction">
+          <dt>行驶方向</dt>
+          <dd>{direction}</dd>
+        </div>
+        <div>
+          <dt>总站数</dt>
+          <dd>{stationCount} 站</dd>
+        </div>
+        <div className="souvenir-ticket-mobile-pass">
+          <dt>验讫</dt>
+          <dd><span>✓</span> 全线通关</dd>
+        </div>
+      </dl>
+    </figure>
+  );
+}
+
 function ResultScreen({
   elapsedSeconds,
   completedStations,
@@ -2517,7 +3036,12 @@ function ResultScreen({
   speedUnit,
   accuracy,
   completionReason,
+  gameMode,
+  cityName,
+  cityNameEn,
   lineName,
+  lineCode,
+  directionLabel,
   stations,
   isLoop,
   routeColor,
@@ -2530,7 +3054,12 @@ function ResultScreen({
   speedUnit: string;
   accuracy: number;
   completionReason: CompletionReason;
+  gameMode: GameMode;
+  cityName: string;
+  cityNameEn: string;
   lineName: string;
+  lineCode: string;
+  directionLabel: string;
   stations: Station[];
   isLoop: boolean;
   routeColor: string;
@@ -2538,13 +3067,140 @@ function ResultScreen({
   onRetry: () => void;
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const ticketSvgRef = useRef<SVGSVGElement>(null);
+  const [ticketFile, setTicketFile] = useState<File | null>(null);
+  const [ticketPreparing, setTicketPreparing] = useState(false);
+  const [ticketStatus, setTicketStatus] = useState("");
   const fullLineComplete = completionReason === "line";
+  const showSouvenirTicket = shouldCreateSouvenirTicket(
+    completionReason,
+    gameMode,
+  );
   const origin = stations[0];
   const destination = stations.at(-1);
+  const routeDirection = isLoop
+    ? origin
+      ? `从 ${origin.nameZh} 出发`
+      : ""
+    : origin && destination
+      ? `${origin.nameZh} → ${destination.nameZh}`
+      : "";
+  const direction = [directionLabel, routeDirection]
+    .filter(Boolean)
+    .join(" · ");
+  const ticketFileName = createSouvenirTicketFileName(cityName, lineName);
+  const shareText = createSouvenirTicketShareText({
+    cityName,
+    lineName,
+    direction,
+    stationCount: stations.length,
+  });
+  const ticketDetails: SouvenirTicketDetails = {
+    cityName,
+    cityNameEn,
+    lineName,
+    lineCode,
+    direction,
+    stationCount: stations.length,
+    routeColor,
+    routeInk: getReadableTextColor(routeColor),
+  };
 
   useEffect(() => {
     headingRef.current?.focus({ preventScroll: true });
   }, []);
+
+  useEffect(() => {
+    if (!showSouvenirTicket || !ticketSvgRef.current) return undefined;
+    let active = true;
+    setTicketFile(null);
+    setTicketPreparing(true);
+    setTicketStatus("正在制作可分享票图…");
+
+    void createSouvenirTicketPngFile(
+      ticketSvgRef.current,
+      ticketFileName,
+    )
+      .then((file) => {
+        if (!active) return;
+        setTicketFile(file);
+        setTicketStatus("");
+      })
+      .catch(() => {
+        if (!active) return;
+        setTicketStatus("票图生成失败，请稍后重试。");
+      })
+      .finally(() => {
+        if (active) setTicketPreparing(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    cityName,
+    cityNameEn,
+    direction,
+    lineCode,
+    lineName,
+    routeColor,
+    showSouvenirTicket,
+    stations.length,
+    ticketFileName,
+  ]);
+
+  async function getTicketFile() {
+    if (ticketFile) return ticketFile;
+    if (!ticketSvgRef.current) throw new Error("纪念票尚未准备完成");
+    setTicketPreparing(true);
+    try {
+      const file = await createSouvenirTicketPngFile(
+        ticketSvgRef.current,
+        ticketFileName,
+      );
+      setTicketFile(file);
+      return file;
+    } finally {
+      setTicketPreparing(false);
+    }
+  }
+
+  async function handleTicketDownload() {
+    setTicketStatus("");
+    try {
+      const file = await getTicketFile();
+      downloadSouvenirTicket(file);
+      setTicketStatus("纪念票 PNG 已下载。");
+    } catch {
+      setTicketStatus("下载失败，请稍后重试。");
+    }
+  }
+
+  async function handleTicketShare() {
+    if (!ticketFile) return;
+    setTicketStatus("");
+    const canShareTicket =
+      typeof navigator.share === "function"
+      && typeof navigator.canShare === "function"
+      && navigator.canShare({ files: [ticketFile] });
+
+    if (!canShareTicket) {
+      setTicketStatus("当前浏览器不支持直接分享票图，请下载 PNG 后发送。");
+      return;
+    }
+
+    try {
+      await navigator.share({
+        title: `${cityName}地铁${lineName}全线通关纪念票`,
+        text: shareText,
+        files: [ticketFile],
+      });
+      setTicketStatus("纪念票已分享。");
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      setTicketStatus("分享没有完成，请下载 PNG 后发送。");
+    }
+  }
 
   return (
     <section
@@ -2556,19 +3212,16 @@ function ResultScreen({
       aria-labelledby="result-title"
       aria-describedby="result-summary"
     >
-      <div className={`result-card${fullLineComplete ? " is-line-complete" : ""}`}>
-        {fullLineComplete ? (
-          <div className="completion-ticket">
-            <span className="completion-ticket-check" aria-hidden="true">✓</span>
-            <div>
-              <span>{isLoop ? "LOOP LINE COMPLETE" : "FULL LINE COMPLETE"}</span>
-              <strong>{isLoop ? "环线全站完成" : "全线到达"}</strong>
-            </div>
-            <b>{lineName}</b>
-          </div>
-        ) : (
-          <span className="result-kicker">TIME UP</span>
-        )}
+      <div
+        className={`result-card${fullLineComplete ? " is-line-complete" : ""}${showSouvenirTicket ? " has-souvenir-ticket" : ""}`}
+      >
+        <span className="result-kicker">
+          {fullLineComplete
+            ? isLoop
+              ? "LOOP LINE COMPLETE"
+              : "FULL LINE COMPLETE"
+            : "TIME UP"}
+        </span>
         <h2
           id="result-title"
           ref={headingRef}
@@ -2586,7 +3239,35 @@ function ResultScreen({
             ? `你在 ${elapsedSeconds} 秒内完成了${lineName}的全部 ${stations.length} 个车站。`
             : `你在 30 秒内通过了 ${completedStations} 个车站。`}
         </p>
-        {fullLineComplete ? (
+        {showSouvenirTicket ? (
+          <div className="souvenir-ticket">
+            <SouvenirTicket details={ticketDetails} svgRef={ticketSvgRef} />
+            <div className="souvenir-ticket-actions" aria-label="纪念票操作">
+              <button
+                className="souvenir-share-button"
+                type="button"
+                disabled={!ticketFile || ticketPreparing}
+                onClick={handleTicketShare}
+              >
+                <span aria-hidden="true">↗</span>
+                分享纪念票
+              </button>
+              <button
+                className="souvenir-download-button"
+                type="button"
+                disabled={ticketPreparing}
+                onClick={handleTicketDownload}
+              >
+                <span aria-hidden="true">↓</span>
+                {ticketPreparing ? "正在制票…" : "下载 PNG"}
+              </button>
+            </div>
+            <p className="souvenir-ticket-status" role="status" aria-live="polite">
+              {ticketStatus}
+            </p>
+          </div>
+        ) : null}
+        {fullLineComplete && !showSouvenirTicket ? (
           <div className={`result-route-summary${isLoop ? " is-loop" : ""}`}>
             <strong>{origin?.nameZh}</strong>
             <span className="result-route-track" aria-hidden="true"><i /><i /><i /></span>
@@ -2594,14 +3275,16 @@ function ResultScreen({
             <small>{stations.length}/{stations.length} 站</small>
           </div>
         ) : null}
-        <div className="result-metrics">
-          <div><strong>{completedStations}</strong><span>{fullLineComplete ? "全线站数" : "通过站数"}</span></div>
-          <div><strong>{speed}</strong><span>平均 {speedUnit}</span></div>
-          <div><strong>{accuracy}%</strong><span>正确率</span></div>
-        </div>
-        <div className="result-actions">
-          <button className="secondary-button" type="button" onClick={onBack}>重新选线</button>
-          <button className="start-button" type="button" onClick={onRetry}><span>再跑一次</span><b>↻</b></button>
+        <div className="result-finish-panel">
+          <div className="result-metrics">
+            <div><strong>{completedStations}</strong><span>{fullLineComplete ? "全线站数" : "通过站数"}</span></div>
+            <div><strong>{speed}</strong><span>平均 {speedUnit}</span></div>
+            <div><strong>{accuracy}%</strong><span>正确率</span></div>
+          </div>
+          <div className="result-actions">
+            <button className="secondary-button" type="button" onClick={onBack}>重新选线</button>
+            <button className="start-button" type="button" onClick={onRetry}><span>再跑一次</span><b>↻</b></button>
+          </div>
         </div>
       </div>
     </section>
