@@ -39,7 +39,7 @@ test("finishes the departure transition before starting the run clock", async ()
     read("app/globals.css"),
   ]);
 
-  assert.match(client, /const DEPARTURE_DURATION_MS = 2_050/);
+  assert.match(client, /const DEPARTURE_DURATION_MS = 2_800/);
   assert.match(client, /departurePendingRef\.current = true/);
   assert.match(client, /playingRef\.current = false[\s\S]{0,500}setScreen\("departing"\)/);
   assert.match(client, /if \(!departurePendingRef\.current\) return/);
@@ -50,12 +50,23 @@ test("finishes the departure transition before starting the run clock", async ()
   assert.match(client, /reducedMotion \? 80 : DEPARTURE_DURATION_MS/);
   assert.match(client, /playChime\(DEPARTURE_CHIME_NOTES, false\)/);
   assert.match(client, /prepareArrivalAudio\(\);\s*playDepartureChime\(\)/);
-  assert.match(client, /<DepartureScreen[\s\S]{0,260}onSkip=\{finishDeparture\}/);
-  assert.match(client, /className="departure-route-map"/);
-  assert.match(client, /className="departure-ticket"/);
+  assert.match(client, /<DepartureScreen[\s\S]{0,220}mode=\{mode\}/);
+  assert.doesNotMatch(client, /departure-skip|跳过过场|onSkip=/);
+  assert.doesNotMatch(css, /\.departure-skip/);
+  assert.match(client, /className="departure-cab-stage"/);
+  assert.match(client, /className="cab-operator"/);
+  assert.match(client, /className="cab-operator-control-arm"/);
+  assert.doesNotMatch(client, /className="cab-operator-walking"/);
+  assert.doesNotMatch(client, /className="cab-operator-seated"/);
+  assert.match(client, /className="cab-throttle"/);
+  assert.doesNotMatch(client, /className="departure-route-map"/);
+  assert.doesNotMatch(client, /className="departure-ticket"/);
+  assert.doesNotMatch(css, /\.departure-(?:route-map|ticket)\b/);
   assert.match(css, /\.departure-screen/);
-  assert.match(css, /@keyframes departure-map-focus/);
-  assert.match(css, /@keyframes departure-route-draw/);
+  assert.match(css, /@keyframes cab-operator-enter-and-sit/);
+  assert.match(css, /@keyframes cab-control-arm/);
+  assert.match(css, /@keyframes cab-throttle-push/);
+  assert.match(css, /@keyframes cab-tunnel-accelerate/);
 });
 
 test("renders a route-specific completion ceremony and persistent result", async () => {

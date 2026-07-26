@@ -377,6 +377,11 @@ kbd {
   box-shadow: 0 8px 24px rgba(40, 35, 25, 0.08);
   cursor: pointer;
 }
+.map-reset-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
 .route-focus-card {
   position: absolute;
   z-index: 6;
@@ -509,21 +514,21 @@ kbd {
   isolation: isolate;
   color: var(--ink);
   background:
-    radial-gradient(circle at 50% 44%, color-mix(in srgb,var(--departure-route) 12%,transparent), transparent 35%),
+    radial-gradient(circle at 76% 52%, color-mix(in srgb,var(--departure-route) 13%,transparent), transparent 36%),
     var(--paper);
-  animation: departure-screen-out 2.05s ease both;
+  animation: departure-screen-out var(--departure-duration,2.8s) ease both;
 }
 .departure-screen::before {
   position: absolute;
   inset: 0;
   z-index: -1;
   content: "";
-  opacity: .28;
+  opacity: .24;
   background-image:
     linear-gradient(color-mix(in srgb,var(--ink) 10%,transparent) 1px, transparent 1px),
     linear-gradient(90deg,color-mix(in srgb,var(--ink) 10%,transparent) 1px, transparent 1px);
   background-size: 28px 28px;
-  mask-image: linear-gradient(to bottom,black,transparent 72%);
+  mask-image: linear-gradient(to bottom,black,transparent 78%);
 }
 .departure-progress {
   position: absolute;
@@ -539,116 +544,13 @@ kbd {
   background: var(--departure-route);
   transform: scaleX(0);
   transform-origin: left;
-  animation: departure-progress 1.92s .08s linear both;
+  animation: departure-progress calc(var(--departure-duration,2.8s) - .18s) .08s linear both;
 }
-.departure-heading {
-  position: absolute;
-  z-index: 7;
-  top: clamp(28px,5vh,58px);
-  left: clamp(24px,5vw,72px);
-  animation: departure-copy-in .45s .08s cubic-bezier(.2,.8,.2,1) both;
-}
-.departure-kicker {
-  color: color-mix(in srgb,var(--departure-route) 76%,var(--ink));
-  font: 700 10px "DM Mono",monospace;
-  letter-spacing: .16em;
-}
-.departure-heading-swap { position: relative; height: clamp(45px,5vw,64px); margin-top: 7px; }
-.departure-heading h2 {
-  position: absolute;
-  inset: 0 auto auto 0;
-  margin: 0;
-  font-size: clamp(34px,4.8vw,58px);
-  line-height: 1;
-  letter-spacing: -.05em;
-}
-.departure-heading h2:first-child { animation: departure-heading-first 1.05s .08s ease both; }
-.departure-heading h2:last-child { animation: departure-heading-second .45s 1.05s ease both; }
-.departure-heading p {
-  margin: 5px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-}
-.departure-status {
-  position: absolute;
-  z-index: 8;
-  left: clamp(24px,5vw,72px);
-  bottom: clamp(26px,4vh,48px);
-  min-width: 176px;
-  min-height: 30px;
-  padding-left: 18px;
-  color: var(--muted);
-  font: 700 10px "DM Mono",monospace;
-  letter-spacing: .08em;
-}
-.departure-status::before {
-  position: absolute;
-  left: 0;
-  top: 3px;
-  width: 8px;
-  height: 8px;
-  content: "";
-  border-radius: 50%;
-  background: var(--departure-route);
-  box-shadow: 0 0 0 5px color-mix(in srgb,var(--departure-route) 14%,transparent);
-  animation: status-pulse .8s ease infinite;
-}
-.departure-status span { position: absolute; left: 18px; top: 0; white-space: nowrap; }
-.departure-status span:first-child { animation: departure-status-first .35s 1.08s ease both; }
-.departure-status span:last-child { animation: departure-status-second .35s 1.14s ease both; }
-.departure-skip {
-  position: absolute;
-  z-index: 9;
-  right: clamp(24px,5vw,72px);
-  bottom: clamp(26px,4vh,48px);
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 9px 11px 9px 15px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--muted);
-  background: color-mix(in srgb,var(--card) 86%,transparent);
-  cursor: pointer;
-  font-size: 10px;
-  font-weight: 700;
-}
-.departure-skip span {
-  display: grid;
-  place-items: center;
-  width: 23px;
-  height: 23px;
-  border-radius: 50%;
-  color: var(--departure-route-ink);
-  background: var(--departure-route);
-}
-.departure-skip:hover { color: var(--ink); border-color: var(--ink); }
-.departure-skip:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
-
 @keyframes departure-screen-out {
-  0%,90% { opacity: 1; }
+  0%,94% { opacity: 1; }
   100% { opacity: 0; }
 }
 @keyframes departure-progress { to { transform: scaleX(1); } }
-@keyframes departure-copy-in {
-  from { opacity: 0; transform: translateY(14px); }
-  to { opacity: 1; transform: none; }
-}
-@keyframes departure-heading-first {
-  0%,72% { opacity: 1; transform: none; }
-  100% { opacity: 0; transform: translateY(-8px); }
-}
-@keyframes departure-heading-second {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: none; }
-}
-@keyframes departure-status-first { to { opacity: 0; transform: translateY(-5px); } }
-@keyframes departure-status-second {
-  from { opacity: 0; transform: translateY(5px); }
-  to { opacity: 1; transform: none; }
-}
-@keyframes status-pulse { 50% { opacity: .45; transform: scale(.85); } }
 
 .game {
   --game-card-height: 220px;
@@ -1110,7 +1012,28 @@ footer a:hover { color: var(--accent-dark); text-decoration-color: currentColor;
   .focused .city-map { transform: none; }
   .route-focus-card { top: 68px; min-width: calc(100vw - 32px); padding: 13px 18px; border-radius: 16px; }
   .focus-route-title h2 { font-size: 21px; }
-  .map-reset { top: 12px; left: 12px; }
+  .map-reset {
+    top: 8px;
+    left: 16px;
+    min-height: 44px;
+    gap: 0;
+    padding: 0 2px;
+    border: 0;
+    border-radius: 0;
+    color: var(--muted);
+    background: transparent;
+    box-shadow: none;
+    font-size: 12px;
+    font-weight: 800;
+  }
+  .map-reset-label { gap: 5px; }
+  .map-reset-arrow {
+    font-size: 17px;
+    line-height: 1;
+    transform: translateY(-1px);
+  }
+  .map-reset-return-word { display: none; }
+  .map-reset:active { opacity: .55; }
   .map-reset kbd { display: none; }
   .home-control-deck { bottom: max(6px, env(safe-area-inset-bottom)); width: 100%; }
   .route-carousel { gap: 10px; padding: 10px 18px 14px; scroll-padding-inline: 18px; scroll-snap-type: x mandatory; }
@@ -1131,12 +1054,6 @@ footer a:hover { color: var(--accent-dark); text-decoration-color: currentColor;
   .segmented-options { width: 100%; }
   .segment-option { flex: 1 1 0; min-width: 0; padding-inline: 8px; }
   .option-toolbar .start-button { grid-column: 1 / -1; min-height: 50px; }
-  .departure-heading { top: 24px; left: 20px; }
-  .departure-heading-swap { height: 42px; }
-  .departure-heading h2 { font-size: 36px; }
-  .departure-heading p { max-width: calc(100vw - 40px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .departure-status { left: 20px; bottom: 64px; }
-  .departure-skip { right: 18px; bottom: 18px; }
   .game { --game-card-height: 242px; }
   .game-chrome { top: max(14px, var(--game-safe-area-top)); left: max(12px, var(--game-safe-area-left)); right: max(12px, var(--game-safe-area-right)); }
   .game-chrome kbd { display: none; }
@@ -1294,155 +1211,11 @@ footer a:hover { color: var(--accent-dark); text-decoration-color: currentColor;
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
-  .departure-screen { animation: none !important; }
-  .departure-progress i { transform: scaleX(1); }
-  .departure-heading,
-  .departure-heading h2:last-child { opacity: 1; transform: none; }
-  .departure-heading h2:first-child { display: none; }
-  .departure-status span:first-child { display: none; }
-  .departure-status span:last-child { opacity: 1; transform: none; }
   .game-completion-line { stroke-dashoffset: 0; opacity: .95; }
   .station-card.completing .completion-card { opacity: 1; transform: none; }
   .game-node.completed { fill: var(--active-route); stroke: white; opacity: 1; }
 }
 
-/* The departure interlude deliberately reuses the map and card language. */
-.departure-screen {
-  background:
-    radial-gradient(circle at 72% 48%,color-mix(in srgb,var(--departure-route) 10%,transparent),transparent 38%),
-    var(--paper);
-}
-.departure-map-stage {
-  position: absolute;
-  z-index: 1;
-  inset: 0;
-  overflow: hidden;
-}
-.departure-map-stage::after {
-  position: absolute;
-  inset: 0;
-  content: "";
-  background: linear-gradient(90deg,var(--paper) 0%,color-mix(in srgb,var(--paper) 96%,transparent) 29%,transparent 62%);
-  pointer-events: none;
-}
-.departure-route-map {
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-  transform: translateX(17%) scale(.96);
-  transform-origin: center;
-  animation: departure-map-focus 1.75s .05s cubic-bezier(.2,.8,.2,1) both;
-}
-.departure-districts path {
-  fill: color-mix(in srgb,var(--card) 82%,transparent);
-  stroke: color-mix(in srgb,var(--line) 92%,var(--ink));
-  stroke-width: 1.2;
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
-}
-.dark .departure-districts path { fill: #222225; stroke: #4a484f; }
-.departure-route-casing,
-.departure-route-line {
-  fill: none;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
-}
-.departure-route-casing {
-  stroke: var(--card);
-  stroke-width: 18;
-}
-.departure-route-line {
-  stroke: var(--departure-route);
-  stroke-width: 10;
-  stroke-dasharray: 1;
-  stroke-dashoffset: 1;
-  animation: departure-route-draw 1.05s .24s cubic-bezier(.45,.05,.2,1) both;
-}
-.departure-route-node {
-  fill: var(--card);
-  stroke: var(--departure-route);
-  stroke-width: 2.3;
-  opacity: 0;
-  vector-effect: non-scaling-stroke;
-  animation: departure-node-in .22s calc(.48s + var(--node-index) * 18ms) ease both;
-}
-.departure-route-node.origin {
-  fill: var(--departure-route);
-  stroke: var(--card);
-  stroke-width: 3;
-  animation:
-    departure-node-in .22s .45s ease both,
-    departure-origin-pulse .72s 1.04s ease-out both;
-}
-.departure-route-node.destination { stroke-width: 3.2; }
-.departure-content {
-  position: absolute;
-  z-index: 5;
-  left: clamp(28px,6vw,88px);
-  top: 50%;
-  width: min(440px,40vw);
-  transform: translateY(-51%);
-}
-.departure-screen .departure-heading {
-  position: relative;
-  inset: auto;
-  opacity: 1;
-  animation: departure-copy-in .42s .06s cubic-bezier(.2,.8,.2,1) both;
-}
-.departure-screen .departure-kicker {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: color-mix(in srgb,var(--departure-route) 72%,var(--ink));
-}
-.departure-kicker i {
-  width: 34px;
-  height: 3px;
-  background: var(--departure-route);
-}
-.departure-screen .departure-heading-swap {
-  height: clamp(60px,6.2vw,84px);
-  margin-top: 18px;
-}
-.departure-screen .departure-heading h2 {
-  font-size: clamp(42px,5.3vw,70px);
-  letter-spacing: -.065em;
-}
-.departure-screen .departure-heading p {
-  margin-top: 7px;
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 500;
-}
-.departure-ticket {
-  margin-top: 27px;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-top: 5px solid var(--departure-route);
-  border-radius: 22px;
-  background: color-mix(in srgb,var(--card) 96%,transparent);
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(12px);
-  animation: departure-ticket-in .5s .2s cubic-bezier(.2,.8,.2,1) both;
-}
-.departure-ticket-top,
-.departure-ticket-status {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 16px;
-  color: var(--muted);
-  font: 700 8px "DM Mono",monospace;
-  letter-spacing: .13em;
-}
-.departure-ticket-top { border-bottom: 1px solid var(--line); }
-.departure-ticket-main {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-  padding: 15px 17px 12px;
-}
 .departure-line-code {
   display: grid;
   flex: 0 0 auto;
@@ -1457,151 +1230,584 @@ footer a:hover { color: var(--accent-dark); text-decoration-color: currentColor;
   line-height: 1;
   white-space: nowrap;
 }
-.departure-ticket-main > div { min-width: 0; }
-.departure-ticket-main small,
-.departure-ticket-main strong { display: block; }
-.departure-ticket-main small {
-  margin-bottom: 3px;
-  color: var(--muted);
-  font-size: 10px;
+/* The departure interlude turns the existing card language into a compact cab. */
+.departure-layout {
+  position: relative;
+  z-index: 1;
+  min-height: inherit;
 }
-.departure-ticket-main strong {
+.departure-copy {
+  position: absolute;
+  z-index: 5;
+  top: 24%;
+  left: clamp(28px,5vw,78px);
+  width: min(460px,34.5vw);
+  transform: translateY(-51%);
+  animation: departure-copy-in .46s .06s cubic-bezier(.2,.8,.2,1) both;
+}
+.departure-sequence {
+  display: grid;
+  grid-template-columns: auto minmax(92px,1fr);
+  align-items: center;
+  gap: 14px;
+  margin: 0 2px 12px;
+  color: color-mix(in srgb,var(--departure-route) 64%,var(--ink));
+  font: 700 9px "DM Mono",monospace;
+  letter-spacing: .13em;
+}
+.departure-sequence-label { white-space: nowrap; }
+.departure-sequence-track {
+  position: relative;
+  display: block;
+  min-width: 92px;
+  height: 12px;
+}
+.departure-sequence-track::before,
+.departure-sequence-track > i {
+  position: absolute;
+  top: 5px;
+  right: 3px;
+  left: 3px;
+  height: 2px;
+  content: "";
+  border-radius: 99px;
+}
+.departure-sequence-track::before {
+  background: color-mix(in srgb,var(--line) 82%,transparent);
+}
+.departure-sequence-track > i {
+  background: var(--departure-route);
+  transform: scaleX(0);
+  transform-origin: left;
+  animation: departure-sequence-fill 1.48s .22s cubic-bezier(.2,.8,.2,1) both;
+}
+.departure-sequence-track > b {
+  position: absolute;
+  z-index: 1;
+  top: 1px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--line);
+  border-radius: 50%;
+  background: var(--card);
+  transform: translateX(-50%);
+  animation: departure-sequence-node .18s ease both;
+}
+.departure-sequence-track > b.one {
+  left: 3px;
+  animation-delay: .22s;
+}
+.departure-sequence-track > b.two {
+  left: 50%;
+  animation-delay: .94s;
+}
+.departure-sequence-track > b.three {
+  left: calc(100% - 3px);
+  animation-delay: 1.66s;
+}
+.departure-run-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0,1fr) auto;
+  align-items: center;
+  gap: 14px;
+  margin-top: 0;
+  padding: 14px 15px;
+  border: 1px solid var(--line);
+  border-top: 5px solid var(--departure-route);
+  border-radius: 20px;
+  background: color-mix(in srgb,var(--card) 96%,transparent);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(12px);
+  animation: departure-run-card-in .5s .2s cubic-bezier(.2,.8,.2,1) both;
+}
+.departure-run-card .departure-line-code {
+  width: 50px;
+  height: 50px;
+  border-width: 4px;
+  font-size: 11px;
+}
+.departure-run-copy { min-width: 0; }
+.departure-run-copy small,
+.departure-run-copy strong { display: block; }
+.departure-run-copy small {
+  margin-bottom: 3px;
+  overflow: hidden;
+  color: var(--muted);
+  font: 700 9px "DM Mono",monospace;
+  letter-spacing: .03em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.departure-run-copy strong {
   overflow: hidden;
   font-size: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.departure-ticket-main strong i {
+.departure-run-copy strong i {
   margin-inline: 5px;
   color: var(--departure-route);
   font-style: normal;
 }
-.departure-ticket-track {
-  position: relative;
-  height: 34px;
-  margin: 0 25px 8px;
+.departure-run-ready {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font: 700 8px "DM Mono",monospace;
+  letter-spacing: .1em;
+  white-space: nowrap;
 }
-.departure-track-line {
-  position: absolute;
-  left: 5px;
-  right: 5px;
-  top: 50%;
-  height: 5px;
-  border-radius: 99px;
-  background: var(--departure-route);
-  transform: translateY(-50%) scaleX(0);
-  transform-origin: left;
-  animation: departure-ticket-line .65s .67s ease both;
-}
-.departure-track-node {
-  position: absolute;
-  z-index: 1;
-  top: 50%;
-  width: 13px;
-  height: 13px;
-  border: 3px solid var(--departure-route);
+.departure-run-ready i {
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: var(--card);
-  transform: translate(-50%,-50%);
+  background: var(--line);
+  animation: cab-ready-light .2s 1.62s ease both;
 }
-.departure-track-node.origin { left: 5px; }
-.departure-track-node.one { left: 34%; }
-.departure-track-node.two { left: 66%; }
-.departure-track-node.destination { left: calc(100% - 5px); }
-.departure-ticket-track b {
+.departure-cab-stage {
   position: absolute;
   z-index: 2;
-  left: 5px;
   top: 50%;
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 20px;
-  border-radius: 7px;
-  color: var(--departure-route-ink);
-  background: var(--departure-route);
-  font-size: 9px;
-  transform: translate(-50%,-50%);
-  animation: departure-marker-go .5s 1.12s ease both;
+  right: clamp(18px,3vw,58px);
+  width: min(820px,58vw);
+  transform: translateY(-50%);
 }
-.departure-ticket-status {
-  border-top: 1px solid var(--line);
-  background: color-mix(in srgb,var(--paper) 44%,transparent);
+.departure-cab-card {
+  position: relative;
+  width: 100%;
+  animation: cab-card-in .52s .06s cubic-bezier(.2,.8,.2,1) both;
 }
-.departure-ticket-status strong {
+.departure-cab-meta {
+  position: absolute;
+  z-index: 2;
+  top: 5.2%;
+  left: 11.5%;
+  right: 5.2%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--muted);
+  font: 700 8px "DM Mono",monospace;
+  letter-spacing: .13em;
+  pointer-events: none;
+}
+.departure-cab-meta strong {
   display: flex;
   align-items: center;
   gap: 7px;
   color: var(--ink);
 }
-.departure-ticket-status strong i {
-  width: 8px;
-  height: 8px;
+.departure-cab-meta strong i {
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--line);
-  animation: departure-clearance .2s 1.16s ease both;
+  animation: cab-ready-light .2s 1.62s ease both;
 }
-
-@keyframes departure-map-focus {
-  from { opacity: 0; transform: translateX(21%) scale(.91); }
-  to { opacity: 1; transform: translateX(17%) scale(1.03); }
+.departure-cab-illustration {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  filter: drop-shadow(0 24px 34px rgba(38,31,20,.14));
+  animation: cab-departure-kick .68s 1.8s ease both;
 }
-@keyframes departure-route-draw { to { stroke-dashoffset: 0; } }
-@keyframes departure-node-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+.cab-shell {
+  fill: color-mix(in srgb,var(--card) 98%,transparent);
+  stroke: var(--line);
+  stroke-width: 2;
 }
-@keyframes departure-origin-pulse {
-  0% { filter: drop-shadow(0 0 0 transparent); }
-  55% { filter: drop-shadow(0 0 9px var(--departure-route)); }
-  100% { filter: drop-shadow(0 0 3px var(--departure-route)); }
+.cab-shell-header {
+  fill: color-mix(in srgb,var(--paper) 58%,var(--card));
 }
-@keyframes departure-ticket-in {
+.cab-header-light { fill: var(--line); }
+.cab-header-light.one { fill: var(--departure-route); }
+.cab-header-light.two { animation: cab-ready-light .2s 1.56s ease both; }
+.cab-header-mark { fill: color-mix(in srgb,var(--ink) 18%,var(--card)); }
+.cab-door-frame { fill: color-mix(in srgb,var(--ink) 10%,var(--card)); }
+.cab-door-opening { fill: #1d1f23; }
+.cab-door-panel {
+  fill: color-mix(in srgb,var(--card) 94%,var(--ink));
+  transform: translateX(-154px);
+  animation: cab-door-close .4s 1.02s cubic-bezier(.2,.8,.2,1) both;
+}
+.cab-door-window { fill: #292d32; }
+.cab-door-stripe { fill: var(--departure-route); }
+.cab-door-handle { fill: color-mix(in srgb,var(--ink) 58%,var(--card)); }
+.cab-window-frame { fill: color-mix(in srgb,var(--ink) 13%,var(--card)); }
+.cab-window-glass { fill: #17191d; }
+.cab-window-stop.top { stop-color: #30343b; }
+.cab-window-stop.bottom { stop-color: #111317; }
+.cab-window-glow-stop.center { stop-color: #8b939d; stop-opacity: .15; }
+.cab-window-glow-stop.edge { stop-color: #111317; stop-opacity: 0; }
+.cab-window-depth,
+.cab-window-glow { pointer-events: none; }
+.cab-tunnel-motion {
+  transform-origin: 488px 178px;
+  animation: cab-tunnel-accelerate .72s 1.7s ease-in both;
+}
+.cab-tunnel-wall { fill: #2b2f35; }
+.cab-tunnel-wall.right { fill: #25292f; }
+.cab-tunnel-ceiling { fill: #202329; }
+.cab-track-bed { fill: #101216; }
+.cab-tunnel-portal { fill: #5d626a; opacity: .48; }
+.cab-tunnel-opening { fill: #090b0e; }
+.cab-rail { fill: #92979d; opacity: .64; }
+.cab-track-sleeper {
+  fill: #7a7f86;
+  opacity: .22;
+  transform-origin: 488px 178px;
+  animation: cab-sleeper-run .58s 1.74s ease-out both;
+}
+.cab-track-sleeper.two { animation-delay: 1.9s; }
+.cab-track-sleeper.three { animation-delay: 2.06s; }
+.cab-wall-light {
+  fill: #e5e6e4;
+  opacity: .09;
+  transform-origin: 488px 178px;
+  animation: cab-wall-light-pass .52s 1.78s ease-out both;
+}
+.cab-wall-light.two { animation-delay: 2.04s; }
+.cab-signal-unit { transform-origin: 561px 176px; }
+.cab-signal-post { fill: #767b82; opacity: .52; }
+.cab-signal-housing { fill: #0c0e11; stroke: #696e75; stroke-width: 1.5; }
+.cab-signal-light {
+  fill: #5b6067;
+  animation: cab-signal-on .16s 1.65s ease both;
+}
+.cab-window-reflection { fill: white; opacity: .035; }
+.cab-seat-back,
+.cab-seat-base,
+.cab-seat-post,
+.cab-seat-foot { fill: #292a2f; }
+.cab-seat-base { fill: #34353b; }
+.cab-operator-shadow { fill: rgba(0,0,0,.14); }
+.cab-operator-body,
+.cab-walk-leg,
+.cab-walk-arm,
+.cab-walk-boot,
+.cab-operator-control-arm { fill: #202126; }
+.cab-operator-head,
+.cab-operator-hand { fill: #d6b497; }
+.cab-operator-cap { fill: #202126; }
+.cab-operator-cap-band,
+.cab-operator-badge { fill: var(--departure-route); }
+.cab-operator {
+  animation: cab-operator-enter-and-sit 1.12s .16s cubic-bezier(.22,.72,.24,1) both;
+}
+.cab-walk-leg,
+.cab-walk-arm {
+  transform-box: fill-box;
+  transform-origin: 50% 8%;
+}
+.cab-walk-leg.left { animation: cab-step-forward .27s .2s ease-in-out 3 alternate; }
+.cab-walk-leg.right,
+.cab-walk-arm.left { animation: cab-step-back .27s .2s ease-in-out 3 alternate; }
+.cab-operator-control-arm {
+  transform-origin: 175.5px 269px;
+  animation: cab-control-arm 1.45s .16s cubic-bezier(.2,.8,.2,1) both;
+}
+.cab-console-shell {
+  fill: color-mix(in srgb,var(--card) 88%,var(--ink));
+  stroke: var(--line);
+  stroke-width: 2;
+}
+.cab-console-edge { fill: color-mix(in srgb,var(--departure-route) 84%,var(--card)); }
+.cab-console-display { fill: #17191d; }
+.cab-display-route {
+  fill: var(--departure-route);
+  transform-box: fill-box;
+  transform-origin: left;
+  animation: cab-display-route-on .48s 1.45s ease both;
+}
+.cab-display-route.faint {
+  fill: color-mix(in srgb,var(--departure-route) 35%,#676a70);
+  animation-delay: 1.58s;
+}
+.cab-console-light {
+  fill: color-mix(in srgb,var(--line) 64%,#55585d);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: cab-console-light-on .18s ease both;
+}
+.cab-console-light.one { animation-delay: 1.4s; }
+.cab-console-light.two { animation-delay: 1.54s; }
+.cab-console-light.three { animation-delay: 1.68s; }
+.cab-console-switch { fill: color-mix(in srgb,var(--ink) 22%,var(--card)); }
+.cab-throttle-base { fill: #2a2c31; stroke: color-mix(in srgb,var(--line) 62%,#72757b); stroke-width: 5; }
+.cab-throttle {
+  fill: var(--departure-route);
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  transform: rotate(-24deg);
+  animation: cab-throttle-push .36s 1.42s cubic-bezier(.2,.8,.2,1) both;
+}
+@keyframes departure-copy-in {
+  from { opacity: 0; transform: translateY(calc(-51% + 14px)); }
+  to { opacity: 1; transform: translateY(-51%); }
+}
+@keyframes departure-copy-in-mobile {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes departure-sequence-fill {
+  to { transform: scaleX(1); }
+}
+@keyframes departure-sequence-node {
+  to {
+    border-color: var(--departure-route);
+    background: var(--departure-route);
+    box-shadow: 0 0 0 4px color-mix(in srgb,var(--departure-route) 12%,transparent);
+  }
+}
+@keyframes departure-run-card-in {
   from { opacity: 0; transform: translateY(16px); }
   to { opacity: 1; transform: none; }
 }
-@keyframes departure-ticket-line { to { transform: translateY(-50%) scaleX(1); } }
-@keyframes departure-marker-go { to { left: 34%; } }
-@keyframes departure-clearance {
+@keyframes cab-card-in {
+  from { opacity: 0; transform: translateY(18px) scale(.975); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes cab-door-close {
+  from { transform: translateX(-154px); }
+  to { transform: none; }
+}
+@keyframes cab-door-close-mobile {
+  from { transform: translateX(-48px); }
+  to { transform: none; }
+}
+@keyframes cab-operator-enter-and-sit {
+  0% { opacity: 0; transform: translateX(-188px); }
+  8% { opacity: 1; }
+  24% { transform: translate(-126px,-4px); }
+  46% { transform: translate(-74px,1px); }
+  67% { transform: translate(-25px,-4px); }
+  82% { transform: translate(14px,0); }
+  90% { transform: translate(24px,5px); }
+  100% { opacity: 1; transform: translate(42px,5px); }
+}
+@keyframes cab-step-forward {
+  from { transform: rotate(11deg); }
+  to { transform: rotate(-12deg); }
+}
+@keyframes cab-step-back {
+  from { transform: rotate(-11deg); }
+  to { transform: rotate(12deg); }
+}
+@keyframes cab-control-arm {
+  0% { transform: rotate(10deg); }
+  14% { transform: rotate(-10deg); }
+  28% { transform: rotate(10deg); }
+  42% { transform: rotate(-10deg); }
+  56% { transform: rotate(10deg); }
+  66%,78% { transform: none; }
+  100% { transform: rotate(-48deg); }
+}
+@keyframes cab-throttle-push {
+  from { transform: rotate(-24deg); }
+  to { transform: rotate(13deg); }
+}
+@keyframes cab-display-route-on {
+  from { opacity: .18; transform: scaleX(.08); }
+  to { opacity: 1; transform: scaleX(1); }
+}
+@keyframes cab-console-light-on {
+  from { fill: color-mix(in srgb,var(--line) 64%,#55585d); transform: scale(.72); }
+  to { fill: var(--departure-route); transform: scale(1); }
+}
+@keyframes cab-ready-light {
   to {
     background: var(--departure-route);
+    fill: var(--departure-route);
     box-shadow: 0 0 0 4px color-mix(in srgb,var(--departure-route) 14%,transparent);
   }
 }
+@keyframes cab-signal-on {
+  to { fill: color-mix(in srgb,var(--green) 72%,#eef3e7); }
+}
+@keyframes cab-tunnel-accelerate {
+  from { transform: scale(1); }
+  to { transform: scale(1.035); }
+}
+@keyframes cab-sleeper-run {
+  0% { opacity: 0; transform: scale(.68); }
+  28% { opacity: .32; }
+  100% { opacity: 0; transform: scale(1.12); }
+}
+@keyframes cab-wall-light-pass {
+  0% { opacity: 0; transform: scale(.76); }
+  32% { opacity: .13; }
+  100% { opacity: 0; transform: scale(1.1); }
+}
+@keyframes cab-departure-kick {
+  0%,22% { transform: none; }
+  32% { transform: translateX(-2px); }
+  43% { transform: translateX(2px); }
+  54% { transform: translateX(-1px); }
+  100% { transform: none; }
+}
 
-@media (max-width: 820px) {
-  .departure-map-stage::after {
-    background: linear-gradient(to bottom,var(--paper) 0%,color-mix(in srgb,var(--paper) 92%,transparent) 43%,transparent 75%);
+@media (min-width: 821px) {
+  .departure-layout {
+    display: flex;
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 24px 0 32px;
   }
-  .departure-route-map {
-    transform: translateY(22%) scale(1.04);
-    animation-name: departure-map-focus-mobile;
-  }
-  .departure-content {
-    top: 26px;
-    left: 20px;
-    right: 20px;
-    width: auto;
+  .departure-copy,
+  .departure-cab-stage {
+    position: relative;
+    inset: auto;
+    width: min(780px,64vw);
     transform: none;
   }
-  .departure-screen .departure-heading-swap { height: 48px; margin-top: 13px; }
-  .departure-screen .departure-heading h2 { font-size: clamp(36px,10vw,48px); }
-  .departure-screen .departure-heading p { font-size: 12px; }
-  .departure-ticket { width: min(430px,100%); margin-top: 18px; border-radius: 18px; }
-  .departure-status { left: 20px; bottom: 64px; }
-  .departure-skip { right: 18px; bottom: 18px; }
+  .departure-copy { animation-name: departure-copy-in-mobile; }
 }
-@keyframes departure-map-focus-mobile {
-  from { opacity: 0; transform: translateY(27%) scale(.96); }
-  to { opacity: .72; transform: translateY(22%) scale(1.08); }
+
+@media (min-width: 821px) and (max-height: 700px) {
+  .departure-layout {
+    gap: 10px;
+    padding-block: 16px 24px;
+  }
+  .departure-copy,
+  .departure-cab-stage { width: min(680px,60vw); }
+}
+
+@media (max-width: 820px), (min-width: 821px) and (max-width: 1000px) and (max-height: 500px) {
+  .departure-screen {
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    background:
+      radial-gradient(circle at 50% 76%,color-mix(in srgb,var(--departure-route) 13%,transparent),transparent 38%),
+      var(--paper);
+  }
+  .departure-layout {
+    display: flex;
+    min-height: 0;
+    height: 100%;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding:
+      max(20px,env(safe-area-inset-top))
+      0
+      max(20px,env(safe-area-inset-bottom));
+  }
+  .departure-copy {
+    position: relative;
+    inset: auto;
+    width: min(440px,calc(100% - 40px));
+    flex: 0 0 auto;
+    transform: none;
+    animation-name: departure-copy-in-mobile;
+  }
+  .departure-sequence {
+    display: block;
+    width: 128px;
+    margin: 0 3px 10px;
+  }
+  .departure-sequence-label { display: none; }
+  .departure-run-card {
+    width: min(440px,100%);
+    margin-top: 0;
+    padding: 11px 12px;
+    border-radius: 17px;
+  }
+  .departure-run-ready { display: none; }
+  .departure-run-copy strong { font-size: clamp(14px,4.1vw,16px); }
+  .departure-run-copy strong i { margin-inline: 3px; }
+  .departure-cab-stage {
+    position: relative;
+    inset: auto;
+    width: min(520px,calc(100vw - 12px));
+    flex: 0 0 auto;
+    margin-top: clamp(12px,2.5dvh,22px);
+    margin-bottom: 0;
+    transform: none;
+  }
+  .cab-door-panel {
+    transform: translateX(-48px);
+    animation-name: cab-door-close-mobile;
+  }
+  .departure-cab-meta { display: none; }
+}
+
+@media (max-width: 380px) {
+  .departure-copy { width: calc(100% - 32px); }
+  .departure-run-card .departure-line-code { width: 44px; height: 44px; }
+}
+
+@media (max-width: 820px) and (max-height: 700px), (min-width: 821px) and (max-width: 1000px) and (max-height: 500px) {
+  .departure-layout {
+    padding-top: max(16px,env(safe-area-inset-top));
+    padding-bottom: max(16px,env(safe-area-inset-bottom));
+  }
+  .departure-run-card {
+    gap: 10px;
+    margin-top: 0;
+    padding: 9px 10px;
+    border-top-width: 4px;
+    border-radius: 15px;
+  }
+  .departure-run-card .departure-line-code {
+    width: 44px;
+    height: 44px;
+    border-width: 3px;
+  }
+  .departure-cab-stage { margin-top: 12px; }
+}
+
+@media (min-width: 821px) and (max-width: 1000px) and (max-height: 500px) {
+  .departure-layout {
+    flex-direction: row;
+    gap: 12px;
+    padding: 16px;
+  }
+  .departure-copy { width: min(300px,36vw); }
+  .departure-cab-stage {
+    width: min(500px,56vw);
+    margin-top: 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .departure-route-map { opacity: 1; transform: translateX(17%) scale(1.03); }
-  .departure-route-line { stroke-dashoffset: 0; }
-  .departure-route-node { opacity: 1; }
-  .departure-ticket { opacity: 1; transform: none; }
-  .departure-track-line { transform: translateY(-50%) scaleX(1); }
-  .departure-ticket-track b { left: 34%; }
-  .departure-ticket-status strong i { background: var(--departure-route); }
+  .departure-screen { animation: none !important; }
+  .departure-progress i { transform: scaleX(1); }
+  .departure-copy,
+  .departure-run-card,
+  .departure-cab-card,
+  .departure-cab-illustration { opacity: 1; }
+  .cab-operator { opacity: 1; transform: translate(42px,5px); }
+  .cab-door-panel { transform: none; }
+  .cab-operator-control-arm { transform: rotate(-48deg); }
+  .cab-throttle { transform: rotate(13deg); }
+  .cab-display-route { opacity: 1; transform: scaleX(1); }
+  .cab-console-light,
+  .cab-header-light.two { fill: var(--departure-route); }
+  .cab-signal-light {
+    fill: color-mix(in srgb,var(--green) 72%,#eef3e7);
+  }
+  .departure-sequence-track > i { transform: scaleX(1); }
+  .departure-sequence-track > b {
+    border-color: var(--departure-route);
+    background: var(--departure-route);
+    box-shadow: 0 0 0 4px color-mix(in srgb,var(--departure-route) 12%,transparent);
+  }
+  .cab-tunnel-motion,
+  .cab-track-sleeper,
+  .cab-wall-light,
+  .cab-signal-light { animation: none !important; }
+  .cab-tunnel-motion { transform: scale(1.035); }
+  .cab-track-sleeper { opacity: .22; transform: none; }
+  .cab-wall-light { opacity: .09; transform: none; }
+  .departure-run-ready i,
+  .departure-cab-meta strong i { background: var(--departure-route); }
 }

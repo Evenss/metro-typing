@@ -31,7 +31,6 @@ import {
 } from "../lib/metro/map-geometry";
 import { getLineBadgeLabel } from "../lib/metro/line-label";
 import {
-  getDepartureCameraFraming,
   getGameSafeRect,
   getJourneyCameraMinimumWidth,
   getMobileKeyboardViewport,
@@ -130,7 +129,7 @@ const MAP_HEIGHT = 700;
 const FULL_VIEWBOX = `0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`;
 const GAME_DURATION = 30_000;
 const LINE_COMPLETION_DURATION_MS = 1_150;
-const DEPARTURE_DURATION_MS = 2_050;
+const DEPARTURE_DURATION_MS = 2_800;
 const DEFAULT_OVERVIEW_METRO_EXTENT: MapExtent = {
   left: 450,
   right: 950,
@@ -1481,12 +1480,9 @@ function MetroTypingCity({ cityId }: { cityId: CityId }) {
         mapModel &&
         gameStations.length ? (
           <DepartureScreen
-            city={city}
             line={selectedLine}
-            mapModel={mapModel}
             stations={gameStations}
             mode={mode}
-            onSkip={finishDeparture}
           />
         ) : null}
         {data && mapModel && journeyVisible && selectedLine && currentStation ? (
@@ -1957,7 +1953,19 @@ function HomeScreen({
 
       {selectedLine ? (
         <>
-          <button className="map-reset" type="button" onClick={onReset}>← 返回线路总览 <kbd>ESC</kbd></button>
+          <button
+            className="map-reset"
+            type="button"
+            aria-label="返回线路总览"
+            onClick={onReset}
+          >
+            <span className="map-reset-label">
+              <span className="map-reset-arrow" aria-hidden="true">←</span>
+              <span className="map-reset-return-word">返回</span>
+              线路总览
+            </span>
+            <kbd>ESC</kbd>
+          </button>
           <div className="route-focus-card" aria-live="polite">
             <span className="focus-kicker">SELECTED ROUTE</span>
             <div className="focus-route-title">
@@ -2079,137 +2087,170 @@ function SegmentedControl({
 }
 
 function DepartureScreen({
-  city,
   line,
-  mapModel,
   stations,
   mode,
-  onSkip,
 }: {
-  city: CityConfig;
   line: MetroLine;
-  mapModel: MapModel;
   stations: Station[];
   mode: GameMode;
-  onSkip: () => void;
 }) {
   const origin = stations[0];
   const destination = stations.at(-1);
-  const journeyPoints = stations
-    .map((station) => mapModel.stationPoints.get(station.id))
-    .filter((point): point is Point => Boolean(point));
-  const departureCamera = getDepartureCameraFraming(journeyPoints);
-  const routeViewBox = getRouteViewBox(
-    journeyPoints,
-    departureCamera.minimumWidth,
-    departureCamera.padding,
-    -0.03,
-  );
-  const routeViewBoxWidth =
-    Number(routeViewBox.split(/\s+/)[2]) || departureCamera.minimumWidth;
-  const departureNodeRadius = Math.min(
-    Math.max(routeViewBoxWidth * 0.0077, 1.05),
-    3.4,
-  );
-  const departureOriginRadius = Math.min(
-    Math.max(routeViewBoxWidth * 0.0132, 1.6),
-    5.8,
-  );
 
   return (
     <section
       className="departure-screen"
       style={{
         "--departure-route": line.color,
-        "--departure-route-ink": getReadableTextColor(line.color),
+        "--departure-duration": `${DEPARTURE_DURATION_MS}ms`,
       } as CSSProperties}
       aria-label="列车长进入驾驶室，准备发车"
     >
       <div className="departure-progress" aria-hidden="true"><i /></div>
 
-      <div className="departure-map-stage" aria-hidden="true">
-        <svg
-          className="departure-route-map"
-          viewBox={routeViewBox}
-          preserveAspectRatio="xMidYMid meet"
-        >
-          <g className="departure-districts">
-            {mapModel.districtPaths.map((district) => (
-              <path key={district.name} d={district.path} />
-            ))}
-          </g>
-          {journeyPoints.length > 1 ? (
-            <>
-              <polyline
-                className="departure-route-casing"
-                points={pointsToString(journeyPoints)}
-              />
-              <polyline
-                className="departure-route-line"
-                points={pointsToString(journeyPoints)}
-                pathLength="1"
-              />
-            </>
-          ) : null}
-          {journeyPoints.map(([x, y], index) => (
-            <circle
-              key={stations[index]?.id ?? index}
-              className={`departure-route-node${index === 0 ? " origin" : ""}${index === journeyPoints.length - 1 ? " destination" : ""}`}
-              cx={x}
-              cy={y}
-              r={index === 0 ? departureOriginRadius : departureNodeRadius}
-              style={{ "--node-index": index } as CSSProperties}
-            />
-          ))}
-        </svg>
-      </div>
-
-      <div className="departure-content">
-        <div className="departure-heading" role="status" aria-live="polite">
-          <span className="departure-kicker">
-            <i /> OPERATOR 01 · {city.nameZh.toUpperCase()} METRO
+      <div className="departure-layout">
+        <div className="departure-copy" role="status" aria-live="polite">
+          <span className="screen-reader-status">
+            列车长正在进入驾驶室，确认线路后发车
           </span>
-          <div className="departure-heading-swap">
-            <h2>列车长已就位</h2>
-            <h2>准备发车</h2>
-          </div>
-          <p>正在接管本次列车，确认线路与行驶方向。</p>
-        </div>
 
-        <div className="departure-ticket">
-          <div className="departure-ticket-top">
-            <span>DEPARTURE CLEARANCE</span>
-            <span>{mode === "timed" ? "30 SEC RUN" : "FULL LINE"}</span>
+          <div className="departure-sequence" aria-hidden="true">
+            <span className="departure-sequence-label">DEPARTURE SEQUENCE · 01</span>
+            <span className="departure-sequence-track">
+              <i />
+              <b className="one" />
+              <b className="two" />
+              <b className="three" />
+            </span>
           </div>
-          <div className="departure-ticket-main">
+
+          <div className="departure-run-card">
             <span className="departure-line-code">{getLineBadgeLabel(line.lineId)}</span>
-            <div>
-              <small>{line.lineName}</small>
+            <div className="departure-run-copy">
+              <small>
+                {line.lineName} · {mode === "timed" ? "30 SEC RUN" : "FULL LINE"}
+              </small>
               <strong>{origin?.nameZh} <i>→</i> {destination?.nameZh}</strong>
             </div>
+            <span className="departure-run-ready"><i /> READY</span>
           </div>
-          <div className="departure-ticket-track" aria-hidden="true">
-            <i className="departure-track-line" />
-            <span className="departure-track-node origin" />
-            <span className="departure-track-node waypoint one" />
-            <span className="departure-track-node waypoint two" />
-            <span className="departure-track-node destination" />
-            <b>发</b>
-          </div>
-          <div className="departure-ticket-status">
-            <span>驾驶室 01</span>
-            <strong><i /> 信号开放</strong>
+        </div>
+
+        <div className="departure-cab-stage" aria-hidden="true">
+          <div className="departure-cab-card">
+            <div className="departure-cab-meta">
+              <span>CAB 01</span>
+              <strong><i /> DEPARTURE READY</strong>
+            </div>
+            <svg
+              className="departure-cab-illustration"
+              viewBox="0 0 760 520"
+              preserveAspectRatio="xMidYMid meet"
+            >
+              <defs>
+                <clipPath id="departure-windshield-clip">
+                  <rect x="272" y="92" width="432" height="212" rx="14" />
+                </clipPath>
+                <linearGradient id="departure-window-depth" x1="0" y1="0" x2="0" y2="1">
+                  <stop className="cab-window-stop top" offset="0" />
+                  <stop className="cab-window-stop bottom" offset="1" />
+                </linearGradient>
+                <radialGradient id="departure-window-glow" cx="50%" cy="43%" r="58%">
+                  <stop className="cab-window-glow-stop center" offset="0" />
+                  <stop className="cab-window-glow-stop edge" offset="1" />
+                </radialGradient>
+              </defs>
+
+              <rect className="cab-shell" x="10" y="10" width="740" height="500" rx="34" />
+              <path className="cab-shell-header" d="M44 10h672a34 34 0 0 1 34 34v22H10V44A34 34 0 0 1 44 10Z" />
+              <circle className="cab-header-light one" cx="39" cy="38" r="7" />
+              <circle className="cab-header-light two" cx="62" cy="38" r="7" />
+              <rect className="cab-header-mark" x="674" y="31" width="46" height="13" rx="6.5" />
+
+              <rect className="cab-door-frame" x="36" y="84" width="174" height="326" rx="24" />
+              <rect className="cab-door-opening" x="50" y="98" width="146" height="298" rx="16" />
+              <g className="cab-door-panel">
+                <rect x="50" y="98" width="146" height="298" rx="16" />
+                <rect className="cab-door-window" x="65" y="118" width="116" height="112" rx="12" />
+                <rect className="cab-door-stripe" x="65" y="248" width="116" height="9" rx="4.5" />
+                <circle className="cab-door-handle" cx="174" cy="276" r="7" />
+              </g>
+
+              <rect className="cab-window-frame" x="254" y="76" width="468" height="244" rx="24" />
+              <g clipPath="url(#departure-windshield-clip)">
+                <rect className="cab-window-glass" x="272" y="92" width="432" height="212" />
+                <rect className="cab-window-depth" x="272" y="92" width="432" height="212" fill="url(#departure-window-depth)" />
+                <rect className="cab-window-glow" x="272" y="92" width="432" height="212" fill="url(#departure-window-glow)" />
+                <g className="cab-tunnel-motion">
+                  <path className="cab-tunnel-wall left" d="M272 92h144l66 76v34L342 304h-70Z" />
+                  <path className="cab-tunnel-wall right" d="M704 92H560l-66 76v34l140 102h70Z" />
+                  <path className="cab-tunnel-ceiling" d="M416 92h144l-66 76h-12Z" />
+                  <path className="cab-track-bed" d="M342 304l140-136h12l140 136Z" />
+                  <path className="cab-tunnel-portal" d="M451 200v-24c0-22 17-39 37-39s37 17 37 39v24h-14v-24c0-13-10-24-23-24s-23 11-23 24v24Z" />
+                  <rect className="cab-tunnel-opening" x="464" y="154" width="48" height="42" rx="7" />
+                  <path className="cab-rail left" d="M400 304l80-118h6l-58 118Z" />
+                  <path className="cab-rail right" d="M548 304l-58-118h6l80 118Z" />
+                  <path className="cab-track-sleeper one" d="M456 217h64l3 3h-70Z" />
+                  <path className="cab-track-sleeper two" d="M430 241h116l5 4H425Z" />
+                  <path className="cab-track-sleeper three" d="M399 272h178l8 6H391Z" />
+                  <path className="cab-wall-light left one" d="M337 148h55l6 6h-64Z" />
+                  <path className="cab-wall-light left two" d="M308 205h87l8 7H303Z" />
+                  <path className="cab-wall-light right one" d="M584 148h55l3 6h-64Z" />
+                  <path className="cab-wall-light right two" d="M581 205h87l5 7h-95Z" />
+                </g>
+                <g className="cab-signal-unit">
+                  <rect className="cab-signal-post" x="559.5" y="177" width="3" height="30" rx="1.5" />
+                  <rect className="cab-signal-housing" x="552" y="145" width="18" height="34" rx="5" />
+                  <rect className="cab-signal-light" x="558" y="153" width="6" height="8" rx="2" />
+                </g>
+                <path className="cab-window-reflection" d="M286 101h97l78 80-41 38Z" />
+              </g>
+
+              <g className="cab-seat">
+                <rect className="cab-seat-back" x="112" y="278" width="86" height="142" rx="30" />
+                <rect className="cab-seat-base" x="126" y="386" width="112" height="42" rx="19" />
+                <rect className="cab-seat-post" x="169" y="416" width="24" height="58" rx="10" />
+                <rect className="cab-seat-foot" x="138" y="464" width="86" height="16" rx="8" />
+              </g>
+
+              <g className="cab-operator">
+                <ellipse className="cab-operator-shadow" cx="124" cy="452" rx="52" ry="10" />
+                <rect className="cab-walk-leg left" x="104" y="346" width="24" height="91" rx="12" />
+                <rect className="cab-walk-leg right" x="139" y="346" width="24" height="91" rx="12" />
+                <rect className="cab-walk-boot left" x="97" y="424" width="37" height="17" rx="8" />
+                <rect className="cab-walk-boot right" x="132" y="424" width="37" height="17" rx="8" />
+                <rect className="cab-operator-body" x="91" y="245" width="82" height="116" rx="30" />
+                <rect className="cab-operator-badge" x="109" y="266" width="24" height="8" rx="4" />
+                <rect className="cab-walk-arm left" x="77" y="258" width="23" height="89" rx="11" />
+                <g className="cab-operator-control-arm">
+                  <rect x="164" y="258" width="23" height="89" rx="11" />
+                  <circle className="cab-operator-hand" cx="175.5" cy="340" r="13" />
+                </g>
+                <circle className="cab-operator-head" cx="132" cy="211" r="35" />
+                <path className="cab-operator-cap" d="M95 199c3-28 18-42 37-42s34 14 37 42Z" />
+                <rect className="cab-operator-cap-band" x="97" y="190" width="72" height="13" rx="6.5" />
+              </g>
+
+              <path className="cab-console-shell" d="M222 334h498a20 20 0 0 1 20 20v120a24 24 0 0 1-24 24H218a18 18 0 0 1-18-18V356a22 22 0 0 1 22-22Z" />
+              <path className="cab-console-edge" d="M222 334h498a20 20 0 0 1 20 20v12H200v-10a22 22 0 0 1 22-22Z" />
+              <rect className="cab-console-display" x="333" y="386" width="222" height="77" rx="14" />
+              <rect className="cab-display-route" x="352" y="406" width="82" height="11" rx="5.5" />
+              <rect className="cab-display-route faint" x="352" y="430" width="154" height="8" rx="4" />
+              <circle className="cab-console-light one" cx="594" cy="416" r="10" />
+              <circle className="cab-console-light two" cx="628" cy="416" r="10" />
+              <circle className="cab-console-light three" cx="662" cy="416" r="10" />
+              <rect className="cab-console-switch" x="584" y="446" width="90" height="12" rx="6" />
+              <circle className="cab-throttle-base" cx="276" cy="405" r="31" />
+              <g className="cab-throttle">
+                <rect x="267" y="341" width="18" height="69" rx="9" />
+                <circle cx="276" cy="343" r="17" />
+              </g>
+            </svg>
           </div>
         </div>
       </div>
 
-      <div className="departure-status" aria-hidden="true">
-        <span>正在确认发车许可</span>
-        <span>线路已激活 · 准备发车</span>
-      </div>
-      <button className="departure-skip" type="button" onClick={onSkip}>
-        跳过过场 <span>→</span>
-      </button>
     </section>
   );
 }
